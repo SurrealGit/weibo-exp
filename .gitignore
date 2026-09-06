@@ -1,0 +1,13 @@
+/dist/
+/.local/
+__pycache__/
+*.pyc
+*.log
+session.json
+/config.json
+/state.json
+/installation.json
+/.weibo-exp-install.json
+/run.lock
+/login-tmp/
+.DS_Store

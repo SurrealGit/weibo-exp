@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192" role="img" aria-labelledby="title desc">
+  <title id="title">weibo-exp</title>
+  <desc id="desc">深色终端、exp 字样与橙色完成标记。</desc>
+  <rect x="8" y="12" width="176" height="172" rx="36" fill="#15191f"/>
+  <rect x="8" y="6" width="176" height="172" rx="36" fill="#242a33"/>
+  <rect x="9" y="7" width="174" height="170" rx="35" fill="none" stroke="#3c4450"/>
+  <circle cx="35" cy="34" r="4" fill="#ff8b45"/>
+  <circle cx="49" cy="34" r="4" fill="#616c7b"/>
+  <circle cx="63" cy="34" r="4" fill="#616c7b"/>
+  <path d="m34 59 12 10-12 10m23 0h13" fill="none" stroke="#c5ced9" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="33" y="132" fill="#f5f7fa" font-family="Menlo,Consolas,monospace" font-size="51" font-weight="700" letter-spacing="-3">exp</text>
+  <circle cx="153" cy="151" r="28" fill="#242a33"/>
+  <circle cx="153" cy="151" r="23" fill="#ff8b45"/>
+  <path d="m142 151 7 7 15-16" fill="none" stroke="#20252d" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
