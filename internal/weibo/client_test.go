@@ -102,7 +102,7 @@ func TestTopicPostsRetriesTransientEmptyFirstPage(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, server.Client())
-	posts, err := client.TopicPosts(context.Background(), "topic", "self", 1, 10, nil)
+	posts, err := client.TopicPosts(context.Background(), "topic", "self", 1, 10, nil, &PostFeed{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +141,7 @@ func TestTopicPostsAppliesLimitAfterEligibility(t *testing.T) {
 			}))
 			defer server.Close()
 			client := NewClient(server.URL, server.Client())
-			posts, err := client.TopicPosts(context.Background(), "topic", "self", pages, 6, excluded)
+			posts, err := client.TopicPosts(context.Background(), "topic", "self", pages, 6, excluded, &PostFeed{})
 			wantCount, wantRequests := 6, 9
 			if pages == 8 {
 				wantCount, wantRequests = 0, 8
@@ -151,6 +151,39 @@ func TestTopicPostsAppliesLimitAfterEligibility(t *testing.T) {
 			}
 			if len(posts) > 0 && (posts[0].MID != "81" || posts[5].MID != "86") {
 				t.Fatalf("ineligible posts counted: %v", posts)
+			}
+		})
+	}
+}
+
+func TestResumedFeedStopsAtRepeatedCursorAndGlobalPageLimit(t *testing.T) {
+	for _, limit := range []int{1, 8} {
+		t.Run(strconv.Itoa(limit), func(t *testing.T) {
+			requests := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests++
+				id := "1"
+				if r.URL.Query().Get("since_id") == "next" {
+					id = "2"
+				}
+				fmt.Fprintf(w, `{"ok":1,"data":{"cards":[{"mblog":{"mid":%q,"user":{"id":"other"}}}],"cardlistInfo":{"since_id":"next"}}}`, id)
+			}))
+			defer server.Close()
+			client := NewClient(server.URL, server.Client())
+			feed := &PostFeed{}
+			var ids []string
+			for i := 0; i < 5; i++ {
+				posts, err := client.TopicPosts(context.Background(), "topic", "self", limit, 1, nil, feed)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, post := range posts {
+					ids = append(ids, post.MID)
+				}
+			}
+			want := min(limit, 2)
+			if requests != want || len(ids) != want {
+				t.Fatalf("requests=%d ids=%v", requests, ids)
 			}
 		})
 	}

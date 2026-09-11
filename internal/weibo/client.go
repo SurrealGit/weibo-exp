@@ -21,7 +21,11 @@ var ErrNotLoggedIn = errors.New("微博登录态无效，请重新执行 login")
 
 // RejectedError proves the operation was not submitted or was explicitly
 // rejected. Other transport/response errors have an unknown remote outcome.
-type RejectedError struct{ Err error }
+type RejectedError struct {
+	Err error
+	// Only a confirmed, post-specific comment permission refusal permits fallback.
+	CommentRestricted bool
+}
 
 func (e *RejectedError) Error() string { return e.Err.Error() }
 func (e *RejectedError) Unwrap() error { return e.Err }
@@ -101,21 +105,45 @@ func (c *Client) FollowedTopics(ctx context.Context, maxPages int) ([]Topic, err
 	return result, nil
 }
 
-func (c *Client) TopicPosts(ctx context.Context, topicID, selfUID string, maxPages, maxPosts int, excluded []string) ([]Post, error) {
+// PostFeed retains pagination and unused posts between candidate batches.
+// Use a new feed for each topic/run; maxPages applies to the entire feed.
+type PostFeed struct {
+	cursor      string
+	pages       int
+	done        bool
+	buffer      []Post
+	seenPosts   map[string]bool
+	seenCursors map[string]bool
+}
+
+func (c *Client) TopicPosts(ctx context.Context, topicID, selfUID string, maxPages, maxPosts int, excluded []string, feed *PostFeed) ([]Post, error) {
 	var result []Post
-	seenPosts := make(map[string]bool)
-	for _, id := range excluded {
-		seenPosts[id] = true
+	if feed.seenPosts == nil {
+		feed.seenPosts = make(map[string]bool)
+		feed.seenCursors = make(map[string]bool)
 	}
-	seenCursors := make(map[string]bool)
-	cursor := ""
-	for page := 0; page < maxPages; page++ {
+	for _, id := range excluded {
+		feed.seenPosts[id] = true
+	}
+	for len(result) < maxPosts {
+		for len(feed.buffer) > 0 && len(result) < maxPosts {
+			post := feed.buffer[0]
+			feed.buffer = feed.buffer[1:]
+			if post.MID == "" || post.IsSelf || feed.seenPosts[post.MID] {
+				continue
+			}
+			feed.seenPosts[post.MID] = true
+			result = append(result, post)
+		}
+		if len(result) == maxPosts || feed.done || feed.pages >= maxPages {
+			break
+		}
 		path := "/api/container/getIndex?containerid=" + url.QueryEscape(topicID)
-		if cursor != "" {
-			path += "&since_id=" + url.QueryEscape(cursor)
+		if feed.cursor != "" {
+			path += "&since_id=" + url.QueryEscape(feed.cursor)
 		}
 		attempts := 1
-		if page == 0 {
+		if feed.pages == 0 {
 			attempts = 3
 		}
 		var posts []Post
@@ -137,24 +165,11 @@ func (c *Client) TopicPosts(ctx context.Context, topicID, selfUID string, maxPag
 				break
 			}
 		}
-		for _, post := range posts {
-			if !seenPosts[post.MID] {
-				seenPosts[post.MID] = true
-				// Count usable candidates, not self-authored or already completed posts.
-				if post.MID == "" || post.IsSelf {
-					continue
-				}
-				result = append(result, post)
-				if len(result) >= maxPosts {
-					return result, nil
-				}
-			}
-		}
-		if next == "" || next == cursor || seenCursors[next] {
-			break
-		}
-		seenCursors[next] = true
-		cursor = next
+		feed.pages++
+		feed.buffer = posts
+		feed.done = next == "" || next == feed.cursor || feed.seenCursors[next]
+		feed.seenCursors[next] = true
+		feed.cursor = next
 	}
 	return result, nil
 }
@@ -266,7 +281,11 @@ func (c *Client) do(ctx context.Context, method, target string, body io.Reader) 
 		if envelope.Msg == "" {
 			envelope.Msg = "微博接口返回失败"
 		}
-		return nil, &RejectedError{Err: errors.New(envelope.Msg)}
+		// Match only the observed permission refusal, not generic failures, rate
+		// limits or transport errors. Unknown responses remain fatal to the run.
+		restricted := method == http.MethodPost && req.URL.Path == "/api/comments/create" &&
+			strings.TrimRight(strings.TrimSpace(envelope.Msg), "！!。.") == "由于对方的设置，你不能评论哦"
+		return nil, &RejectedError{Err: errors.New(envelope.Msg), CommentRestricted: restricted}
 	}
 	if len(envelope.Data) == 0 || string(envelope.Data) == "null" {
 		return json.RawMessage(data), nil

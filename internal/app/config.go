@@ -13,7 +13,7 @@ import (
 	"github.com/SurrealGit/weibo-exp/internal/storage"
 )
 
-const Version = "0.7.0"
+const Version = "0.7.1"
 
 var DefaultCommentTemplates = []string{
 	"打卡",

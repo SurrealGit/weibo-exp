@@ -30,6 +30,7 @@ func selectPosts(posts []weibo.Post, completed []string, limit int) []weibo.Post
 			continue
 		}
 		result = append(result, post)
+		done[post.MID] = true
 		if len(result) == limit {
 			break
 		}

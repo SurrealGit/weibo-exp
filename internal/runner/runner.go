@@ -16,7 +16,7 @@ import (
 type API interface {
 	LoginStatus(context.Context) (weibo.LoginStatus, error)
 	FollowedTopics(context.Context, int) ([]weibo.Topic, error)
-	TopicPosts(context.Context, string, string, int, int, []string) ([]weibo.Post, error)
+	TopicPosts(context.Context, string, string, int, int, []string, *weibo.PostFeed) ([]weibo.Post, error)
 	Checkin(context.Context, string) error
 	Comment(context.Context, string, string, string) (string, error)
 	DeleteComment(context.Context, string, string) error
@@ -194,7 +194,8 @@ func (r *Runner) Run(ctx context.Context) (Summary, error) {
 		}
 
 		completed := append(append([]string(nil), history.CommentedPostIDs...), history.RepostedPostIDs...)
-		posts, err := r.API.TopicPosts(ctx, topic.ID, status.UID, r.Config.MaxFeedPages, max(r.Config.MaxPostsPerTopic, r.Config.CommentLimit+r.Config.RepostLimit), completed)
+		feed := &weibo.PostFeed{}
+		posts, err := r.API.TopicPosts(ctx, topic.ID, status.UID, r.Config.MaxFeedPages, max(r.Config.MaxPostsPerTopic, r.Config.CommentLimit+r.Config.RepostLimit), completed, feed)
 		if err != nil {
 			summary.SkippedTopics++
 			partial = append(partial, fmt.Sprintf("[%s] 获取帖子失败: %v", topic.Name, err))
@@ -214,7 +215,7 @@ func (r *Runner) Run(ctx context.Context) (Summary, error) {
 		reposts := selected[repostsStart:repostsEnd]
 		fmt.Fprintf(r.Options.Output, "  候选帖子：%d 条；剩余任务目标：评论 %d 条，转发 %d 条；已分配不同帖子 %d 条\n",
 			len(posts), commentRemaining, repostRemaining, len(comments)+len(reposts))
-		if len(selected) < commentRemaining+repostRemaining {
+		if r.Options.DryRun && len(selected) < commentRemaining+repostRemaining {
 			partial = append(partial, fmt.Sprintf("[%s] 可用帖子不足，需要 %d 条而实际只有 %d 条", topic.Name, commentRemaining+repostRemaining, len(selected)))
 			fmt.Fprintf(r.Options.Output, "  注意：可用帖子不足，目标需要 %d 条，本次只能分配 %d 条\n", commentRemaining+repostRemaining, len(selected))
 			fmt.Fprintf(r.Options.Output, "  读取限制：最多 %d 页、%d 条候选；已排除本人及今日已互动内容。可通过 config set --max-feed-pages 调整分页上限；帖子不足不记为全部完成。\n",
@@ -226,18 +227,12 @@ func (r *Runner) Run(ctx context.Context) (Summary, error) {
 			summary.Reposts += len(reposts)
 			continue
 		}
-		for _, group := range []struct {
-			kind  string
-			posts []weibo.Post
-		}{{"comment", comments}, {"repost", reposts}} {
-			for index, post := range group.posts {
-				if err := r.checkDate(date); err != nil {
-					return summary, err
-				}
-				if err := r.interact(ctx, topic.ID, post, group.kind, date, status.ST, index+1, len(group.posts), &summary); err != nil {
-					return summary, err
-				}
-			}
+		unfinished, err := r.runInteractions(ctx, topic.ID, date, status, posts, completed, feed, commentRemaining, repostRemaining, &summary)
+		if err != nil {
+			return summary, err
+		}
+		if unfinished != "" {
+			partial = append(partial, fmt.Sprintf("[%s] %s", topic.Name, unfinished))
 		}
 		if topicIndex < len(topics)-1 {
 			if err := r.delay(ctx, r.Config.TopicDelayMin, r.Config.TopicDelayMax); err != nil {

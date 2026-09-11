@@ -71,7 +71,7 @@
 | Windows，Intel / AMD 64 位处理器 | `windows-amd64.zip` | `weibo-exp.exe` |
 | Linux，Intel / AMD 64 位处理器 | `linux-amd64.tar.gz` | `weibo-exp` |
 
-例如，Apple 芯片 Mac 对应 `weibo-exp-v0.7.0-darwin-arm64.tar.gz`。每个压缩包包含程序、使用说明及配套图片和许可声明。
+例如，Apple 芯片 Mac 对应 `weibo-exp-v0.7.1-darwin-arm64.tar.gz`。每个压缩包包含程序、使用说明及配套图片和许可声明。
 
 Mac 可在苹果菜单的“关于本机”中查看芯片；Windows 可在“设置 → 系统 → 系统信息”中查看系统类型。Linux 自动执行使用用户级 systemd（243 或更新版本）；手动运行无需 systemd。
 
@@ -233,7 +233,7 @@ weibo-exp config set --comment-limit 6 --repost-limit 3
 weibo-exp config set --comment-limit 0 --repost-limit 0
 ```
 
-提高数量后，程序会结合当天的本地进度补齐差额。评论和转发使用不同的候选帖子，并排除本人发布和本工具今日已互动的帖子；可用帖子不足时会报告未完成项。
+提高数量后，程序会结合当天的本地进度补齐差额。评论和转发使用不同的候选帖子，并排除本人发布和本工具今日已互动的帖子。遇到明确的帖子评论权限限制时，会跳过并补选其他帖子；候选耗尽后会在分页上限内继续读取，仍不足时报告未完成项并继续其他超话。
 
 ### 设置执行时间
 
@@ -500,7 +500,7 @@ weibo-exp login
 
 **候选帖子不足怎么办？**
 
-可先执行 `weibo-exp config set --max-feed-pages 16` 增加读取页数，再使用 `weibo-exp run --dry-run` 预览。默认最多读取 8 页；能否完成目标仍取决于超话中的可用帖子数量。
+程序会优先使用已有候选，并在需要时继续分页补充；同一超话每次运行默认最多读取 8 页，本次已尝试的帖子不会重复尝试。仍不足时，可执行 `weibo-exp config set --max-feed-pages 16` 增加读取页数，再使用 `weibo-exp run --dry-run` 预览。预演只读取帖子，实际评论权限以发布时微博的返回为准。
 
 ## 开发与构建
 

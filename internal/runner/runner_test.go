@@ -23,6 +23,7 @@ type fakeAPI struct {
 	followedCall   int
 	posts          []weibo.Post
 	emptyCommentID bool
+	feed           *weibo.PostFeed
 }
 
 func (f *fakeAPI) LoginStatus(context.Context) (weibo.LoginStatus, error) {
@@ -36,7 +37,11 @@ func (f *fakeAPI) FollowedTopics(context.Context, int) ([]weibo.Topic, error) {
 	}
 	return []weibo.Topic{{ID: "topic", Name: "测试", CanCheckin: true, CheckinURL: "/checkin"}}, nil
 }
-func (f *fakeAPI) TopicPosts(context.Context, string, string, int, int, []string) ([]weibo.Post, error) {
+func (f *fakeAPI) TopicPosts(_ context.Context, _, _ string, _, _ int, _ []string, feed *weibo.PostFeed) ([]weibo.Post, error) {
+	if f.feed == feed {
+		return nil, nil
+	}
+	f.feed = feed
 	if f.posts != nil {
 		return f.posts, nil
 	}

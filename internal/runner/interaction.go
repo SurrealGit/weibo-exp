@@ -53,7 +53,14 @@ func (r *Runner) interact(ctx context.Context, topicID string, post weibo.Post, 
 		var rejected *weibo.RejectedError
 		if errors.As(err, &rejected) {
 			r.State.PendingDeletes = r.State.PendingDeletes[:pendingIndex]
-			return errors.Join(fmt.Errorf("%s未创建（原帖 %s）: %w", pendingKindName(kind), post.MID, err), r.Options.Save(*r.State))
+			failure := fmt.Errorf("%s未创建（原帖 %s）: %w", pendingKindName(kind), post.MID, err)
+			if saveErr := r.Options.Save(*r.State); saveErr != nil {
+				return errors.Join(failure, saveErr)
+			}
+			if kind == "comment" && rejected.CommentRestricted {
+				return &postRestrictionError{failure}
+			}
+			return failure
 		}
 		return fmt.Errorf("%s创建结果无法确认（原帖 %s）；已保留待检查记录，执行 cleanup 查看，请勿重复发布: %w", pendingKindName(kind), post.MID, err)
 	}

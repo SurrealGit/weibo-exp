@@ -48,7 +48,7 @@ type quotaAPI struct {
 	excluded     []string
 }
 
-func (f *quotaAPI) TopicPosts(_ context.Context, _, _ string, pages, posts int, excluded []string) ([]weibo.Post, error) {
+func (f *quotaAPI) TopicPosts(_ context.Context, _, _ string, pages, posts int, excluded []string, _ *weibo.PostFeed) ([]weibo.Post, error) {
 	f.pages, f.posts = pages, posts
 	f.excluded = append([]string(nil), excluded...)
 	result := make([]weibo.Post, posts)
