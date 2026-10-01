@@ -29,7 +29,10 @@ func main() {
 		if errors.Is(err, flag.ErrHelp) {
 			return
 		}
-		fmt.Fprintln(os.Stderr, "操作失败：", err)
+		var blocked *manualCheckError
+		if !errors.As(err, &blocked) {
+			fmt.Fprintln(os.Stderr, "操作失败：", err)
+		}
 		if errors.Is(err, weibo.ErrNotLoggedIn) {
 			os.Exit(3)
 		}
@@ -242,6 +245,7 @@ func runCLI(ctx context.Context, args []string, input io.Reader, output, errorOu
 		fmt.Fprintln(output, "登录结果：成功")
 		fmt.Fprintf(output, "用户 UID：%s\n", status.UID)
 		fmt.Fprintf(output, "会话文件：%s\n", paths.Session)
+		printPendingNotice(output, paths, state)
 		return nil
 	case "status":
 		return statusCommand(ctx, paths, cfg, client, commandArgs, output, errorOutput)

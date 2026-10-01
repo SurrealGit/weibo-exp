@@ -254,11 +254,11 @@ func (c *Client) do(ctx context.Context, method, target string, body io.Reader) 
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, httpFailure(method, endpointLabel(resolved), resp.StatusCode, data)
+	}
 	if err != nil {
 		return nil, err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("%s %s: HTTP %d", method, endpointLabel(resolved), resp.StatusCode)
 	}
 	if bytes.HasPrefix(bytes.TrimSpace(data), []byte("<")) {
 		return nil, fmt.Errorf("%s %s: 服务器返回了 HTML，可能需要重新登录或解除风控", method, endpointLabel(resolved))

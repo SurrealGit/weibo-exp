@@ -62,7 +62,7 @@ func (r *Runner) interact(ctx context.Context, topicID string, post weibo.Post, 
 			}
 			return failure
 		}
-		return fmt.Errorf("%s创建结果无法确认（原帖 %s）；已保留待检查记录，执行 cleanup 查看，请勿重复发布: %w", pendingKindName(kind), post.MID, err)
+		return fmt.Errorf("%s创建结果无法确认（原帖 %s）；已保留待检查记录，请勿重复发布: %w", pendingKindName(kind), post.MID, err)
 	}
 	if kind == "comment" {
 		summary.Comments++
@@ -89,7 +89,7 @@ func (r *Runner) interact(ctx context.Context, topicID string, post weibo.Post, 
 		return errors.Join(fmt.Errorf("保存待清理记录失败（%s，原帖 %s，内容 ID %s）；请人工检查: %w", kind, post.MID, id, err), cleanupErr)
 	}
 	if id == "" {
-		return fmt.Errorf("%s已提交但缺少内容 ID；已持久化待人工检查记录，执行 cleanup 查看", pendingKindName(kind))
+		return fmt.Errorf("%s已提交但缺少内容 ID；已持久化待人工检查记录", pendingKindName(kind))
 	}
 	if err := r.delay(ctx, r.Config.VisibleDelayMin, r.Config.VisibleDelayMax); err != nil {
 		return err

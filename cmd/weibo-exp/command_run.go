@@ -26,6 +26,18 @@ func runCommand(ctx context.Context, paths app.Paths, cfg app.Config, client *we
 	if err := parseFlags(flags, args); err != nil {
 		return err
 	}
+	release, err := runner.AcquireLock(paths.Lock)
+	if err != nil {
+		return err
+	}
+	defer release()
+	state, err := app.LoadState(paths.State)
+	if err != nil {
+		return err
+	}
+	if err := checkManualPending(output, paths, state, *dryRun); err != nil {
+		return err
+	}
 	if !*dryRun && !*yes {
 		fmt.Fprintln(output, "即将执行实际写操作：")
 		fmt.Fprintln(output, "  - 为未签到的超话执行签到")
@@ -37,11 +49,6 @@ func runCommand(ctx context.Context, paths app.Paths, cfg app.Config, client *we
 			return errors.New("用户取消")
 		}
 	}
-	release, err := runner.AcquireLock(paths.Lock)
-	if err != nil {
-		return err
-	}
-	defer release()
 	if paths.Config != "" {
 		cfg, err = app.LoadConfig(paths.Config)
 		if err != nil {
@@ -54,6 +61,9 @@ func runCommand(ctx context.Context, paths app.Paths, cfg app.Config, client *we
 func executeRun(ctx context.Context, paths app.Paths, cfg app.Config, client *weibo.Client, options runner.Options) (resultErr error) {
 	state, err := app.LoadState(paths.State)
 	if err != nil {
+		return err
+	}
+	if err := checkManualPending(options.Output, paths, state, options.DryRun); err != nil {
 		return err
 	}
 	if paths.Session != "" {
@@ -71,6 +81,9 @@ func executeRun(ctx context.Context, paths app.Paths, cfg app.Config, client *we
 	summary, err := taskRunner.Run(ctx)
 	if !options.IfDue || summary.Comments+summary.Reposts+summary.Deleted+summary.Checkins > 0 || err != nil {
 		printRunSummary(options.Output, summary, options.DryRun, err)
+	}
+	if err != nil {
+		printPendingNotice(options.Output, paths, state)
 	}
 	return err
 }
@@ -93,7 +106,12 @@ func scheduledCommand(ctx context.Context, paths app.Paths, baseURL string) erro
 	client := weibo.NewClient(baseURL, &http.Client{Timeout: 30 * time.Second})
 	err = executeRun(ctx, paths, cfg, client, runner.Options{IfDue: true, Clock: time.Now, Output: output})
 	if err != nil {
-		fmt.Fprintln(errorOutput, "操作失败：", err)
+		var blocked *manualCheckError
+		if errors.As(err, &blocked) {
+			fmt.Fprintln(errorOutput, blocked)
+		} else {
+			fmt.Fprintln(errorOutput, "操作失败：", err)
+		}
 	}
 	return err
 }

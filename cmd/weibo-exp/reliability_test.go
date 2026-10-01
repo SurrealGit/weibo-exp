@@ -187,7 +187,7 @@ func TestCleanupListingGuidance(t *testing.T) {
 				t.Fatal(err)
 			}
 			if pending {
-				for _, want := range []string{"待清理内容：1 条", "内容 ID content", "cleanup confirm"} {
+				for _, want := range []string{"待处理内容：1 条", "评论 ID：content", "cleanup confirm"} {
 					if !strings.Contains(output.String(), want) {
 						t.Fatalf("missing %q: %s", want, output.String())
 					}

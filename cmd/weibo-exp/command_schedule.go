@@ -94,6 +94,7 @@ func scheduleCommand(paths app.Paths, args []string, output, errorOutput io.Writ
 		fmt.Fprintln(output, "补跑检查：从每日执行时间起每 4 小时一次，至当天结束（完成后仅进行轻量状态检查）")
 		fmt.Fprintf(output, "程序路径：%s\n", executable)
 		fmt.Fprintf(output, "数据目录：%s\n", paths.DataDir)
+		printStoredPendingNotice(output, paths)
 		return nil
 	case "status":
 		flags := flag.NewFlagSet("schedule status", flag.ContinueOnError)
@@ -134,6 +135,7 @@ func scheduleCommand(paths app.Paths, args []string, output, errorOutput io.Writ
 			}
 		}
 		fmt.Fprintln(output, "\n执行 weibo-exp logs 查看最近运行记录。")
+		printStoredPendingNotice(output, paths)
 		return nil
 	case "uninstall":
 		native := nativeScheduleConfig(paths, "", "00:00")

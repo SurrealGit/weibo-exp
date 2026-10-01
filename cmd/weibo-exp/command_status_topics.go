@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -18,15 +19,35 @@ func statusCommand(ctx context.Context, paths app.Paths, cfg app.Config, client 
 	if err := parseFlags(flags, args); err != nil {
 		return err
 	}
+	state, err := app.LoadState(paths.State)
+	if err != nil {
+		return err
+	}
+	manual, retry := pendingCounts(state)
+	if !*asJSON {
+		defer printPendingNotice(output, paths, state)
+	}
 	status, err := client.LoginStatus(ctx)
 	if err != nil {
+		if *asJSON {
+			result := map[string]any{"error": err.Error(), "pending_deletes": len(state.PendingDeletes), "pending_manual_checks": manual, "pending_retry_deletes": retry}
+			if errors.Is(err, weibo.ErrNotLoggedIn) {
+				result["login"] = false
+			}
+			return errors.Join(err, writeJSON(output, result))
+		}
+		if errors.Is(err, weibo.ErrNotLoggedIn) {
+			fmt.Fprintf(output, "账户状态：登录已失效，执行 %s 重新登录。\n", commandFor(paths, "login"))
+		} else {
+			fmt.Fprintln(output, "账户状态：暂无法确认。")
+		}
+		fmt.Fprintln(output, "今日任务：暂无法获取实时状态。")
+		fmt.Fprintf(output, "每日执行时间：%s\n", cfg.ScheduledTime)
+		printScheduleState(output, paths)
+		printLogRetention(output, cfg.LogRetentionDays)
 		return err
 	}
 	topics, err := client.FollowedTopics(ctx, cfg.MaxFollowedPages)
-	if err != nil {
-		return err
-	}
-	state, err := app.LoadState(paths.State)
 	if err != nil {
 		return err
 	}
@@ -42,6 +63,7 @@ func statusCommand(ctx context.Context, paths app.Paths, cfg app.Config, client 
 		"topics_in_scope": selectedTopicCount(topics, cfg.SelectedTopics), "selection_mode": selectionMode(cfg.SelectedTopics),
 		"today": today, "today_complete": todayComplete, "today_completed_topics": progress.Completed,
 		"today_remaining_topics": progress.Remaining, "pending_deletes": len(state.PendingDeletes),
+		"pending_manual_checks": manual, "pending_retry_deletes": retry,
 	}
 	if *asJSON {
 		return writeJSON(output, result)
@@ -59,9 +81,6 @@ func statusCommand(ctx context.Context, paths app.Paths, cfg app.Config, client 
 	} else {
 		printTaskProgress(output, progress)
 	}
-	if len(state.PendingDeletes) > 0 {
-		fmt.Fprintf(output, "待清理内容：%d 条（执行 cleanup 查看；缺少 ID 的项目需人工检查）\n", len(state.PendingDeletes))
-	}
 	fmt.Fprintf(output, "每日执行时间：%s\n", cfg.ScheduledTime)
 	printScheduleState(output, paths)
 	printLogRetention(output, cfg.LogRetentionDays)
@@ -75,15 +94,22 @@ func topicsCommand(ctx context.Context, paths app.Paths, cfg app.Config, client 
 	if err := parseFlags(flags, args); err != nil {
 		return err
 	}
+	state, err := app.LoadState(paths.State)
+	if err != nil {
+		return err
+	}
+	manual, retry := pendingCounts(state)
+	if !*asJSON {
+		defer printPendingNotice(output, paths, state)
+	}
 	status, err := client.LoginStatus(ctx)
 	if err != nil {
+		if *asJSON {
+			return errors.Join(err, writeJSON(output, map[string]any{"error": err.Error(), "pending_deletes": len(state.PendingDeletes), "pending_manual_checks": manual, "pending_retry_deletes": retry}))
+		}
 		return err
 	}
 	topics, err := client.FollowedTopics(ctx, cfg.MaxFollowedPages)
-	if err != nil {
-		return err
-	}
-	state, err := app.LoadState(paths.State)
 	if err != nil {
 		return err
 	}
@@ -92,10 +118,7 @@ func topicsCommand(ctx context.Context, paths app.Paths, cfg app.Config, client 
 	}
 	views := topicViews(topics, cfg.SelectedTopics, cfg, state, app.Today(time.Now()))
 	if *asJSON {
-		return writeJSON(output, map[string]any{"selection_mode": selectionMode(cfg.SelectedTopics), "pending_deletes": len(state.PendingDeletes), "topics": views})
-	}
-	if len(state.PendingDeletes) > 0 {
-		fmt.Fprintf(output, "全部待清理内容：%d 条；执行 weibo-exp cleanup 查看（包括已取消关注的超话）。\n", len(state.PendingDeletes))
+		return writeJSON(output, map[string]any{"selection_mode": selectionMode(cfg.SelectedTopics), "pending_deletes": len(state.PendingDeletes), "pending_manual_checks": manual, "pending_retry_deletes": retry, "topics": views})
 	}
 	printTopics(output, views, cfg.SelectedTopics)
 	return nil
