@@ -17,6 +17,7 @@ import (
 	"github.com/SurrealGit/weibo-exp/internal/app"
 	"github.com/SurrealGit/weibo-exp/internal/install"
 	"github.com/SurrealGit/weibo-exp/internal/logging"
+	"github.com/SurrealGit/weibo-exp/internal/mailnotify"
 	"github.com/SurrealGit/weibo-exp/internal/runner"
 	"github.com/SurrealGit/weibo-exp/internal/schedule"
 )
@@ -73,6 +74,9 @@ func TestUninstallCleanOrKeepConfig(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			paths, dir := installedFixture(t)
 			os.WriteFile(paths.Session, []byte("{}"), 0600)
+			for _, name := range []string{mailnotify.ConfigFile, mailnotify.StateFile} {
+				os.WriteFile(filepath.Join(paths.DataDir, name), []byte("{}"), 0600)
+			}
 			app.SaveState(paths.State, app.NewState())
 			os.MkdirAll(paths.LogDir, 0700)
 			os.WriteFile(filepath.Join(paths.LogDir, logging.OutputFile), []byte("logs"), 0600)
@@ -91,6 +95,11 @@ func TestUninstallCleanOrKeepConfig(t *testing.T) {
 			}
 			if _, err := os.Stat(paths.Config); keep != (err == nil) {
 				t.Fatalf("keep=%v config=%v", keep, err)
+			}
+			for _, name := range []string{mailnotify.ConfigFile, mailnotify.StateFile} {
+				if _, err := os.Stat(filepath.Join(paths.DataDir, name)); keep != (err == nil) {
+					t.Fatalf("keep=%v notification file=%s: %v", keep, name, err)
+				}
 			}
 			if !keep {
 				if _, err := os.Stat(paths.DataDir); !errors.Is(err, os.ErrNotExist) {

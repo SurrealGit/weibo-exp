@@ -161,6 +161,8 @@ func runCLI(ctx context.Context, args []string, input io.Reader, output, errorOu
 		return nil
 	case "config":
 		return configCommand(ctx, paths, commandArgs, output, errorOutput, *baseURL)
+	case "notify":
+		return notifyCommand(ctx, paths, commandArgs, output, errorOutput)
 	case "schedule":
 		return scheduleCommand(paths, commandArgs, output, errorOutput)
 	case "scheduled-run":
@@ -276,6 +278,7 @@ func printHelp(output io.Writer) {
   schedule install      安装定时任务
   schedule status       查看定时状态；--verbose 显示路径详情
   schedule uninstall    卸载定时任务
+  notify                配置、查看、测试、开启或关闭 SMTP 邮件通知
   logs [--lines N]      查看定时任务日志；--errors 只看错误日志
   logs clear [--yes]    清空定时任务日志
   cleanup               查看待清理内容；confirm 确认已人工清理指定项

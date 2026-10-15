@@ -100,7 +100,10 @@ func configCommand(ctx context.Context, paths app.Paths, args []string, output, 
 			cfg.LogRetentionDays = *logRetentionDays
 		}
 		if *taskTime != "" {
-			cfg.ScheduledTime = *taskTime
+			cfg.ScheduledTime, err = app.NormalizeScheduledTime(*taskTime)
+			if err != nil {
+				return err
+			}
 		}
 		if *topics != "" {
 			if *topics == "all" {

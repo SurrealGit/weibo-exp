@@ -57,6 +57,42 @@ func TestDefaultLogRetention(t *testing.T) {
 	}
 }
 
+func TestScheduledTimeNormalization(t *testing.T) {
+	for input, want := range map[string]string{"7:05": "07:05", "07:05": "07:05", "0:00": "00:00", "23:59": "23:59"} {
+		t.Run(input, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.json")
+			// Read existing non-padded values without modifying the file.
+			original := []byte(`{"scheduled_time":"` + input + `"}`)
+			if err := os.WriteFile(path, original, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := LoadConfig(path)
+			if err != nil || cfg.ScheduledTime != want {
+				t.Fatalf("load time = %q, %v", cfg.ScheduledTime, err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil || string(data) != string(original) {
+				t.Fatal("load modified the config file")
+			}
+			cfg.ScheduledTime = input
+			if err := SaveConfig(path, cfg); err != nil {
+				t.Fatal(err)
+			}
+			data, err = os.ReadFile(path)
+			if err != nil || json.Unmarshal(data, &cfg) != nil || cfg.ScheduledTime != want {
+				t.Fatalf("stored time = %q, %v", cfg.ScheduledTime, err)
+			}
+		})
+	}
+	for _, input := range []string{"24:00", "7:60", "7:5", "", "invalid"} {
+		cfg := DefaultConfig()
+		cfg.ScheduledTime = input
+		if err := cfg.Validate(); err == nil {
+			t.Fatalf("accepted invalid time %q", input)
+		}
+	}
+}
+
 func TestAlternateDataDirectoryOwnsLogs(t *testing.T) {
 	t.Setenv("WEIBO_EXP_DATA_DIR", "")
 	dir := t.TempDir()

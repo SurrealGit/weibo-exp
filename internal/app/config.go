@@ -13,7 +13,7 @@ import (
 	"github.com/SurrealGit/weibo-exp/internal/storage"
 )
 
-const Version = "0.7.2"
+const Version = "0.8.0"
 
 var DefaultCommentTemplates = []string{
 	"打卡",
@@ -199,6 +199,7 @@ func LoadConfig(path string) (Config, error) {
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
 	}
+	cfg.ScheduledTime, _ = NormalizeScheduledTime(cfg.ScheduledTime)
 	if cfg.Version < 2 {
 		cfg.Version = 2
 	}
@@ -209,12 +210,21 @@ func SaveConfig(path string, cfg Config) error {
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
+	cfg.ScheduledTime, _ = NormalizeScheduledTime(cfg.ScheduledTime)
 	return storage.WriteJSON(path, cfg, 0o600)
 }
 
+func NormalizeScheduledTime(value string) (string, error) {
+	parsed, err := time.Parse("15:04", value)
+	if err != nil {
+		return "", errors.New("定时时间必须使用 HH:MM 格式")
+	}
+	return parsed.Format("15:04"), nil
+}
+
 func (c Config) Validate() error {
-	if _, err := time.Parse("15:04", c.ScheduledTime); err != nil {
-		return errors.New("定时时间必须使用 HH:MM 格式")
+	if _, err := NormalizeScheduledTime(c.ScheduledTime); err != nil {
+		return err
 	}
 	if c.CommentLimit < 0 || c.CommentLimit > 100 || c.RepostLimit < 0 || c.RepostLimit > 100 {
 		return errors.New("评论和转发上限必须在 0–100 之间")

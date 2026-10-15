@@ -55,21 +55,22 @@ func runCommand(ctx context.Context, paths app.Paths, cfg app.Config, client *we
 			return err
 		}
 	}
-	return executeRun(ctx, paths, cfg, client, runner.Options{DryRun: *dryRun, IfDue: *ifDue, Clock: time.Now, Output: output})
+	_, err = executeRun(ctx, paths, cfg, client, runner.Options{DryRun: *dryRun, IfDue: *ifDue, Clock: time.Now, Output: output})
+	return err
 }
 
-func executeRun(ctx context.Context, paths app.Paths, cfg app.Config, client *weibo.Client, options runner.Options) (resultErr error) {
+func executeRun(ctx context.Context, paths app.Paths, cfg app.Config, client *weibo.Client, options runner.Options) (summary runner.Summary, resultErr error) {
 	state, err := app.LoadState(paths.State)
 	if err != nil {
-		return err
+		return summary, err
 	}
 	if err := checkManualPending(options.Output, paths, state, options.DryRun); err != nil {
-		return err
+		return summary, err
 	}
 	if paths.Session != "" {
 		jar, err := session.Load(paths.Session)
 		if err != nil {
-			return err
+			return summary, err
 		}
 		client.HTTP.Jar = jar
 		if !options.DryRun {
@@ -78,33 +79,51 @@ func executeRun(ctx context.Context, paths app.Paths, cfg app.Config, client *we
 	}
 	options.Save = func(value app.State) error { return app.SaveState(paths.State, value) }
 	taskRunner := runner.Runner{API: client, Config: cfg, State: &state, Options: options}
-	summary, err := taskRunner.Run(ctx)
+	summary, err = taskRunner.Run(ctx)
 	if !options.IfDue || summary.Comments+summary.Reposts+summary.Deleted+summary.Checkins > 0 || err != nil {
 		printRunSummary(options.Output, summary, options.DryRun, err)
 	}
 	if err != nil {
 		printPendingNotice(options.Output, paths, state)
 	}
-	return err
+	return summary, err
 }
 
-func scheduledCommand(ctx context.Context, paths app.Paths, baseURL string) error {
+func scheduledCommand(ctx context.Context, paths app.Paths, baseURL string) (resultErr error) {
 	release, err := runner.AcquireLock(paths.Lock)
 	if err != nil {
 		return err
 	}
 	defer release()
+	var notificationOutput, successOutput io.Writer
+	var summary runner.Summary
+	started := time.Now()
+	var closeLogs func()
+	defer func() {
+		now := time.Now()
+		if resultErr != nil {
+			notifyScheduledFailure(ctx, paths, resultErr, notificationOutput, now)
+		} else if summary.Topics > 0 && app.Today(started) == app.Today(now) {
+			// A successful run with topics means all targets are complete. An
+			// early check before the daily start time has zero topics instead.
+			notifyScheduledSuccess(ctx, paths, summary.Topics, successOutput, notificationOutput, now)
+		}
+		if closeLogs != nil {
+			closeLogs()
+		}
+	}()
 	cfg, err := app.LoadConfig(paths.Config)
 	if err != nil {
 		return errors.Join(err, logScheduledStartupError(paths, err))
 	}
-	output, errorOutput, closeLogs, err := openScheduledLogs(paths, cfg)
+	output, errorOutput, closeFiles, err := openScheduledLogs(paths, cfg)
 	if err != nil {
 		return err
 	}
-	defer closeLogs()
+	closeLogs, notificationOutput = closeFiles, errorOutput
+	successOutput = output
 	client := weibo.NewClient(baseURL, &http.Client{Timeout: 30 * time.Second})
-	err = executeRun(ctx, paths, cfg, client, runner.Options{IfDue: true, Clock: time.Now, Output: output})
+	summary, err = executeRun(ctx, paths, cfg, client, runner.Options{IfDue: true, Clock: time.Now, Output: output})
 	if err != nil {
 		var blocked *manualCheckError
 		if errors.As(err, &blocked) {

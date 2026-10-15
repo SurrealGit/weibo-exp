@@ -26,6 +26,36 @@ type fakeAPI struct {
 	feed           *weibo.PostFeed
 }
 
+type expiredDuringRunAPI struct {
+	fakeAPI
+}
+
+func (f *expiredDuringRunAPI) Checkin(context.Context, string) error {
+	return weibo.ErrNotLoggedIn
+}
+
+func (f *expiredDuringRunAPI) TopicPosts(context.Context, string, string, int, int, []string, *weibo.PostFeed) ([]weibo.Post, error) {
+	return nil, weibo.ErrNotLoggedIn
+}
+
+func TestPartialFailuresPreserveLoginIdentity(t *testing.T) {
+	for _, checkin := range []bool{false, true} {
+		api := &expiredDuringRunAPI{}
+		cfg := testConfig()
+		if checkin {
+			cfg.CommentLimit, cfg.RepostLimit = 0, 0
+		} else {
+			api.followed = [][]weibo.Topic{{{ID: "topic", Name: "测试", Signed: true}}}
+		}
+		state := app.NewState()
+		r := Runner{API: api, Config: cfg, State: &state, Options: Options{Save: func(app.State) error { return nil }}}
+		_, err := r.Run(context.Background())
+		if !errors.Is(err, weibo.ErrNotLoggedIn) || strings.Contains(err.Error(), "\n") {
+			t.Fatalf("login identity or summary format lost: %v", err)
+		}
+	}
+}
+
 func (f *fakeAPI) LoginStatus(context.Context) (weibo.LoginStatus, error) {
 	return weibo.LoginStatus{Login: true, ST: "token", UID: "self"}, nil
 }
@@ -113,6 +143,43 @@ func testConfig() app.Config {
 	cfg.ActionDelayMin, cfg.ActionDelayMax = 0, 0
 	cfg.TopicDelayMin, cfg.TopicDelayMax = 0, 0
 	return cfg
+}
+
+func TestIfDueUsesHourAndMinute(t *testing.T) {
+	for _, start := range []string{"7:05", "07:05"} {
+		for _, clock := range []string{"00:00", "06:59", "07:04", "07:05", "07:06", "11:05", "15:05", "19:05", "23:05", "23:59"} {
+			t.Run(start+"/"+clock, func(t *testing.T) {
+				now, err := time.ParseInLocation("2006-01-02 15:04", "2026-10-15 "+clock, time.Local)
+				if err != nil {
+					t.Fatal(err)
+				}
+				cfg := testConfig()
+				cfg.ScheduledTime = start
+				cfg.CommentLimit, cfg.RepostLimit = 0, 0
+				state := app.NewState()
+				api := &fakeAPI{}
+				var output bytes.Buffer
+				r := Runner{API: api, Config: cfg, State: &state, Options: Options{
+					IfDue: true, Clock: func() time.Time { return now }, Output: &output,
+					Save: func(app.State) error { return nil },
+				}}
+				summary, err := r.Run(context.Background())
+				if err != nil {
+					t.Fatal(err)
+				}
+				want := 1
+				if clock == "00:00" || clock == "06:59" || clock == "07:04" {
+					want = 0
+					if !strings.Contains(output.String(), "设定时间 07:05") {
+						t.Fatal(output.String())
+					}
+				}
+				if summary.Topics != want || summary.Checkins != want || len(api.actions) != want {
+					t.Fatalf("summary=%+v, actions=%v, want %d", summary, api.actions, want)
+				}
+			})
+		}
+	}
 }
 
 func TestRunCreatesDeletesAndRecordsHistory(t *testing.T) {

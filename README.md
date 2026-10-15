@@ -35,6 +35,7 @@
 
 - **开箱即用**：登录和任务均由程序独立完成，无需配置运行环境或启动浏览器。
 - **每日自动执行**：默认每天 10:00 开始，每 4 小时检查补跑，至当天结束；已完成的任务自动跳过。
+- **任务邮件提醒**：每日任务完成后发送确认邮件，登录失效或执行受阻时提供提醒及处理指引。
 - **范围自由选择**：自动获取关注列表，支持全部处理，也可按序号或名称选择。
 - **按需配置互动**：默认每个超话每日评论 4 条、转发 2 条，支持自定义数量与评论内容。
 - **自动清理互动**：评论和转发发布后请求删除；中途失败时保存进度，下次优先恢复清理。
@@ -71,7 +72,7 @@
 | Windows，Intel / AMD 64 位处理器 | `windows-amd64.zip` | `weibo-exp.exe` |
 | Linux，Intel / AMD 64 位处理器 | `linux-amd64.tar.gz` | `weibo-exp` |
 
-例如，Apple 芯片 Mac 对应 `weibo-exp-v0.7.2-darwin-arm64.tar.gz`。每个压缩包包含程序、使用说明及配套图片和许可声明。
+例如，Apple 芯片 Mac 对应 `weibo-exp-v0.8.0-darwin-arm64.tar.gz`。每个压缩包包含程序、使用说明及配套图片和许可声明。
 
 Mac 可在苹果菜单的“关于本机”中查看芯片；Windows 可在“设置 → 系统 → 系统信息”中查看系统类型。Linux 自动执行使用用户级 systemd（243 或更新版本）；手动运行无需 systemd。
 
@@ -107,6 +108,8 @@ weibo-exp login
 ```
 
 使用微博 App 扫描弹出的二维码，并在手机上确认登录。登录会话保存在本机。
+
+**登录状态可能在数日后失效**，目前实际使用中观察到约为 **4–7 天**，具体时间因账号和使用情况而异。失效后执行 `weibo-exp login` 重新扫码登录；使用每日自动任务时，建议启用[邮件通知](#邮件通知可选)，便于及时处理。
 
 默认处理全部关注超话，每个超话每日评论 4 条、转发 2 条，并为未签到的超话签到。运行前可参考[日常使用](#日常使用)和[评论池](#评论池)设置偏好，或执行 `weibo-exp run --dry-run` 预览任务。
 
@@ -255,8 +258,9 @@ weibo-exp config set --time 10:00
 | 查看内容 | 命令 |
 | --- | --- |
 | 最近运行记录 | `weibo-exp logs` |
-| 每份日志最后 20 行 | `weibo-exp logs --lines 20` |
+| 最近 20 行记录 | `weibo-exp logs --lines 20` |
 | 错误日志 | `weibo-exp logs --errors` |
+| 错误日志最后 30 行 | `weibo-exp logs --errors --lines 30` |
 
 自动任务的记录带有时间戳，便于确认执行时间和结果。
 
@@ -267,7 +271,99 @@ weibo-exp config set --time 10:00
 | 保留最近 14 天 | `weibo-exp config set --log-retention-days 14` |
 | 手动清空 | `weibo-exp logs clear` |
 
-`logs` 默认显示普通日志和错误日志各自最后 100 行。`logs clear` 会要求确认；保留天数设为 `0` 时关闭自动清理。修改保留天数后，下次定时启动时应用新规则。
+`logs` 将普通日志和错误日志按时间合并，默认显示最近 100 行，最新记录在下方，错误记录标有 `[错误]`。`--lines` 指定显示的总行数，可与 `--errors` 一起使用。
+
+`logs clear` 会要求确认；保留天数设为 `0` 时关闭自动清理。修改保留天数后，下次定时启动时应用新规则。
+
+### 邮件通知（可选）
+
+配置并启用 SMTP 邮件通知后，可接收以下提醒：
+
+- **每日完成**：每天首次通过定时任务完成全部任务后，发送一封完成邮件。如果任务此前已手动完成，也会在当天首次定时检查确认完成后发送。
+- **任务异常**：定时任务遇到登录失效、待人工核查或其他失败时，发送问题摘要及处理命令。每类异常每天最多成功通知一次。
+
+完成提醒每天最多一封，后续定时检查不重复发送；当天异常恢复后仍可发送完成提醒。邮件对应发送当时的任务范围，随后新增超话或调整目标不重复通知。手动运行和只读查询不自动发邮件。
+
+准备一个 `smtp.json` 文件，按邮箱服务商提供的信息填写：
+
+```json
+{
+  "host": "smtp.example.com",
+  "port": 465,
+  "security": "ssl",
+  "username": "sender@example.com",
+  "password": "邮箱授权码",
+  "from": "sender@example.com",
+  "to": "recipient@example.com"
+}
+```
+
+`security` 有两种连接方式：
+
+| 填写值 | 连接方式 | 常见端口 |
+| --- | --- | --- |
+| `ssl` | SSL/TLS：连接建立时立即加密 | 465 |
+| `starttls` | STARTTLS：先协商，再升级为加密连接 | 587 |
+
+请按邮箱服务商提供的信息填写端口和加密方式，也可参考下方的常用邮箱配置。
+
+先在邮箱设置中开启 SMTP 服务，再填写以下信息：
+
+- `username`：SMTP 登录账号，通常为完整邮箱地址。
+- `password`：邮箱服务商提供的授权码、应用专用密码或 SMTP 密码。
+- `from`：发件邮箱地址，通常与 `username` 相同，也可使用该账号允许的发件别名。
+- `to`：接收提醒的邮箱地址。
+
+如果希望用自己的邮箱给自己发送提醒，`username`、`from` 和 `to` 三个字段都填写同一个邮箱地址即可。
+
+<details>
+<summary>常用邮箱配置参考</summary>
+
+以下列出常用组合；账号权限、地区及企业邮箱套餐可能有差异，请结合官方说明并发送测试邮件确认。
+
+| 邮箱 | `host` | `port` | `security` | 配置说明 |
+| --- | --- | --- | --- | --- |
+| QQ | `smtp.qq.com` | 465 | `ssl` | 使用[邮箱授权码](https://help.mail.qq.com/detail/106/985)，参见[腾讯配置说明](https://main.qcloudimg.com/raw/document/product/pdf/1270_46586_cn.pdf) |
+| 网易 163 / 126 / yeah | `smtp.163.com` / `smtp.126.com` / `smtp.yeah.net` | 465 | `ssl` | 使用客户端授权密码，参见[网易说明](https://help.mail.yeah.net/faqDetail.do?code=d7a5dc8471cd0c0e8b4b8f4f8e49998b374173cfe9171305fa1ce630d7f67ac25c12dcb3d46222b6) |
+| Gmail | `smtp.gmail.com` | 465 / 587 | 分别为 `ssl` / `starttls` | 使用账号允许生成的应用专用密码，参见[Google 说明](https://support.google.com/a/answer/176600) |
+| iCloud | `smtp.mail.me.com` | 587 | `starttls` | 使用 App 专用密码，参见[Apple 说明](https://support.apple.com/zh-cn/102525) |
+| Yahoo | `smtp.mail.yahoo.com` | 465 | `ssl` | 使用应用专用密码，参见[Yahoo 说明](https://help.yahoo.com/kb/imap-settings-sln4075.html) |
+| Zoho | `smtp.zoho.com` | 465 / 587 | 分别为 `ssl` / `starttls` | 企业账号、数据中心可能使用其他地址，参见[Zoho 说明](https://www.zoho.com/mail/help/zoho-smtp.html) |
+| 阿里邮箱 | `smtp.qiye.aliyun.com` | 465 | `ssl` | 按账号设置使用三方客户端安全密码，参见[阿里说明](https://help.aliyun.com/zh/document_detail/36576.html) |
+
+Gmail、Zoho 等教程把 587 端口的方式简称为“TLS”，在这里应填写 `starttls`；这里的 `tls` 别名始终表示连接时立即加密。iCloud 的教程也出现“需要 SSL”的表述，其 587 端口配置使用 `starttls`。
+
+目前支持 AUTH PLAIN / LOGIN。[Outlook.com / Hotmail 要求 OAuth2](https://support.microsoft.com/en-us/outlook/pop-imap-and-smtp-settings-for-outlook-com)，暂不支持作为此处的发件账号，但可以作为收件地址。
+
+</details>
+
+首次使用时，导入配置并发送测试邮件：
+
+```sh
+weibo-exp notify configure --file smtp.json
+weibo-exp notify test
+```
+
+首次导入后自动通知默认关闭；更新配置时保留原来的启用状态。`notify test` 会实际发送一封邮件，不执行微博任务，也不改变通知开关。确认收到后启用：
+
+```sh
+weibo-exp notify enable
+```
+
+查看或关闭通知：
+
+```sh
+weibo-exp notify status
+weibo-exp notify disable
+```
+
+关闭后配置保留，执行 `notify enable` 即可重新启用，无需重新导入。开关通知不会清除当天的去重记录；重新导入配置会重置通知记录。显式执行 `notify test` 在关闭自动通知时仍可测试。自定义数据目录的用户，在命令前加上相应的 `--data-dir`。
+
+SMTP 配置独立保存在数据目录的 `smtp.json` 中，授权码为本地明文；请妥善保管或删除自行创建的导入源文件，勿将其上传仓库、附在问题反馈或分享给他人。`notify status` 不显示授权码，`config show --json` 也不包含 SMTP 配置。
+
+邮件只提供完成情况或问题摘要及处理命令，不附带登录会话和完整日志。发送失败会记录日志，并在下次定时检查满足相应通知条件时再次尝试，不改变原始任务结果。开关同时控制异常和完成提醒，正常去重情况下每天最多四封自动邮件。
+
+SMTP 服务器接收后，邮件仍可能延迟或进入垃圾箱；请通过测试邮件确认能正常收取。电脑关机、休眠或断网时，程序无法保证及时发送提醒。未收到完成邮件时，可检查设备、运行日志和邮箱；邮件缺失本身不能确定设备是否离线。
 
 ## 评论池
 
@@ -330,10 +426,13 @@ weibo-exp config show
 | `config show` | 查看配置与评论池 |
 | `config set` | 修改超话、数量、时间和评论池等设置 |
 | `config path` | 显示配置文件位置 |
-| `config reset` | 恢复全部默认设置，包含评论池和执行时间 |
+| `config reset` | 恢复任务默认设置，包含评论池和执行时间 |
 | `schedule install` | 启用每日自动执行 |
 | `schedule status` | 查看定时任务设置 |
 | `schedule uninstall` | 停止每日自动执行，保留程序和数据 |
+| `notify configure --file FILE` | 保存 SMTP 配置，保留原启用状态；首次配置默认关闭 |
+| `notify status` / `notify test` | 查看通知设置 / 实际发送测试邮件 |
+| `notify enable` / `notify disable` | 开启 / 关闭自动邮件通知，保留配置和去重记录 |
 | `logs` / `logs clear` | 查看 / 清空运行日志 |
 | `cleanup` | 查看待清理的评论、转发记录 |
 | `cleanup confirm` | 人工核对后移除指定待清理记录 |
@@ -341,7 +440,7 @@ weibo-exp config show
 
 参数说明可通过 `weibo-exp install --help`、`weibo-exp config set --help` 查看。`status`、`topics`、`config show` 支持 `--json`，便于与其他工具配合。
 
-`run --yes`、`install --yes`、`uninstall --yes` 和 `logs clear --yes` 可跳过各自的确认。`config reset` 会直接恢复默认配置，登录会话与任务进度保留。全局参数（如 `--data-dir`）放在命令前，命令选项放在命令后。
+`run --yes`、`install --yes`、`uninstall --yes` 和 `logs clear --yes` 可跳过各自的确认。`config reset` 会直接恢复任务的默认配置，登录会话、任务进度及独立的邮件通知配置保留。全局参数（如 `--data-dir`）放在命令前，命令选项放在命令后。
 
 ## 安装选项
 
@@ -403,6 +502,8 @@ weibo-exp config show
 | `config.json` | 超话选择、每日时间、互动数量、评论池及日志保留天数 |
 | `session.json` | 微博登录会话，备份和分享时请妥善保护 |
 | `state.json` | 互动进度及待清理记录；保存时保留最近 7 天互动历史，待清理记录单独保留 |
+| `smtp.json` | 邮件通知配置，包含明文授权码，请妥善保护 |
+| `notification-state.json` | 异常与完成邮件最近成功提交的日期，用于避免重复通知 |
 | `installation.json` | 安装位置与卸载所需记录 |
 | `run.lock` | 防止多个任务同时操作的锁文件 |
 | `login-tmp/` | 扫码图片的临时存放目录，正常登录流程结束后清理图片 |
@@ -456,7 +557,7 @@ weibo-exp uninstall
 weibo-exp uninstall --keep-config
 ```
 
-使用 `--keep-config` 时仍会清理日志、定时任务和本工具添加的 PATH 设置。存在待删除或待人工检查的内容时，先按 `weibo-exp cleanup` 的提示处理，再卸载。卸载结束后请重新打开终端。
+使用 `--keep-config` 时保留邮件配置和通知记录，仍会清理日志、定时任务和本工具添加的 PATH 设置。默认卸载会删除数据目录中的邮件配置和通知记录，但不删除用户另存的导入源文件。存在待删除或待人工检查的内容时，先按 `weibo-exp cleanup` 的提示处理，再卸载。卸载结束后请重新打开终端。
 
 下载的压缩包、解压副本和自己创建的评论文本可按需自行清理。Windows 卸载时请等待终端显示“后台卸载清理完成”。
 

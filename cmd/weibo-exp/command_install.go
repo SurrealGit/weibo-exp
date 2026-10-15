@@ -14,6 +14,7 @@ import (
 	"github.com/SurrealGit/weibo-exp/internal/app"
 	"github.com/SurrealGit/weibo-exp/internal/install"
 	"github.com/SurrealGit/weibo-exp/internal/logging"
+	"github.com/SurrealGit/weibo-exp/internal/mailnotify"
 	"github.com/SurrealGit/weibo-exp/internal/runner"
 	"github.com/SurrealGit/weibo-exp/internal/schedule"
 )
@@ -192,6 +193,7 @@ func uninstallationCommand(paths app.Paths, args []string, input io.Reader, outp
 	files := append(logging.Paths(paths.LogDir), qr...)
 	if !*keep {
 		files = append(files, paths.Config, paths.Session, paths.State)
+		files = append(files, filepath.Join(paths.DataDir, mailnotify.ConfigFile), filepath.Join(paths.DataDir, mailnotify.StateFile))
 	}
 	// Preflight all deletion paths before stopping a task or deleting any data.
 	for _, p := range append(append([]string{}, files...), paths.Lock, record.Sidecar(), filepath.Join(record.DataDir, install.ReceiptName)) {

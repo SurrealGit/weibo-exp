@@ -8,12 +8,14 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 )
 
 const (
-	OutputFile = "scheduled.log"
-	ErrorFile  = "scheduled-error.log"
+	OutputFile      = "scheduled.log"
+	ErrorFile       = "scheduled-error.log"
+	timestampLayout = "[2006-01-02 15:04:05]"
 )
 
 type PruneResult struct {
@@ -59,6 +61,52 @@ func Tail(path string, lineCount int) ([]byte, error) {
 	lines := splitLines(data)
 	if len(lines) > lineCount {
 		lines = lines[len(lines)-lineCount:]
+	}
+	return joinLines(lines), nil
+}
+
+// ReadTail merges bounded tails, keeping the newest lineCount lines in time order.
+// Equal timestamps retain file order, with ordinary output before errors.
+func ReadTail(logDir string, lineCount int, errorsOnly bool) ([]byte, error) {
+	type entry struct {
+		when time.Time
+		line []byte
+	}
+	var entries []entry
+	files := []string{OutputFile, ErrorFile}
+	if errorsOnly {
+		files = []string{ErrorFile}
+	}
+	for _, name := range files {
+		data, err := Tail(filepath.Join(logDir, name), lineCount)
+		if err != nil {
+			return nil, err
+		}
+		var previous time.Time
+		for _, line := range splitLines(data) {
+			when, dated := lineTime(line, time.Local)
+			if dated {
+				previous = when
+			}
+			// Undated continuation lines follow their preceding timestamp;
+			// legacy lines without one sort before dated entries.
+			if name == ErrorFile {
+				if dated {
+					line = []byte(string(line[:len(timestampLayout)]) + " [错误]" + string(line[len(timestampLayout):]))
+				} else {
+					line = append([]byte("[错误] "), line...)
+				}
+			}
+			entries = append(entries, entry{when: previous, line: line})
+		}
+	}
+	sort.SliceStable(entries, func(i, j int) bool { return entries[i].when.Before(entries[j].when) })
+	if len(entries) > lineCount {
+		entries = entries[len(entries)-lineCount:]
+	}
+	lines := make([][]byte, len(entries))
+	for i, item := range entries {
+		lines[i] = item.line
 	}
 	return joinLines(lines), nil
 }
@@ -152,11 +200,10 @@ func pruneFile(path string, cutoff time.Time, location *time.Location) (PruneRes
 }
 
 func lineTime(line []byte, location *time.Location) (time.Time, bool) {
-	const layout = "[2006-01-02 15:04:05]"
-	if len(line) < len(layout) {
+	if len(line) < len(timestampLayout) {
 		return time.Time{}, false
 	}
-	value, err := time.ParseInLocation(layout, string(line[:len(layout)]), location)
+	value, err := time.ParseInLocation(timestampLayout, string(line[:len(timestampLayout)]), location)
 	return value, err == nil
 }
 

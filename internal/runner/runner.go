@@ -43,6 +43,20 @@ type Summary struct {
 	SkippedTopics int `json:"skipped_topics"`
 }
 
+// Keep individual error identities for callers (for example login reminders),
+// while retaining the existing one-line summary shown to users.
+type taskFailures []error
+
+func (e taskFailures) Error() string {
+	parts := make([]string, len(e))
+	for i, err := range e {
+		parts[i] = err.Error()
+	}
+	return strings.Join(parts, "; ")
+}
+
+func (e taskFailures) Unwrap() []error { return []error(e) }
+
 type Runner struct {
 	API     API
 	Config  app.Config
@@ -94,9 +108,16 @@ func (r *Runner) Run(ctx context.Context) (Summary, error) {
 			return summary, err
 		}
 	}
-	if r.Options.IfDue && r.Options.Clock().Format("15:04") < r.Config.ScheduledTime {
-		fmt.Fprintf(r.Options.Output, "定时检查：当前时间尚未达到设定时间 %s；本次不创建新任务。\n", r.Config.ScheduledTime)
-		return summary, nil
+	if r.Options.IfDue {
+		start, err := time.Parse("15:04", r.Config.ScheduledTime)
+		if err != nil {
+			return summary, errors.New("定时时间必须使用 HH:MM 格式")
+		}
+		now := r.Options.Clock()
+		if now.Hour()*60+now.Minute() < start.Hour()*60+start.Minute() {
+			fmt.Fprintf(r.Options.Output, "定时检查：当前时间尚未达到设定时间 %s；本次不创建新任务。\n", start.Format("15:04"))
+			return summary, nil
+		}
 	}
 	allTopics, err := r.API.FollowedTopics(ctx, r.Config.MaxFollowedPages)
 	if err != nil {
@@ -132,7 +153,7 @@ func (r *Runner) Run(ctx context.Context) (Summary, error) {
 		return Summary{Topics: len(topics)}, errors.New("存在待清理内容，本次预演不规划新的评论或转发")
 	}
 
-	var partial []string
+	var partial taskFailures
 	for topicIndex := range topics {
 		if err := r.checkDate(date); err != nil {
 			return summary, err
@@ -156,7 +177,7 @@ func (r *Runner) Run(ctx context.Context) (Summary, error) {
 					return summary, dateErr
 				}
 				if err != nil {
-					partial = append(partial, fmt.Sprintf("[%s] 刷新签到凭证失败: %v", topic.Name, err))
+					partial = append(partial, fmt.Errorf("[%s] 刷新签到凭证失败: %w", topic.Name, err))
 					fmt.Fprintf(r.Options.Output, "  签到结果：未执行（刷新签到凭证失败：%v）\n", err)
 				} else if freshTopic.Signed {
 					fmt.Fprintln(r.Options.Output, "  签到状态：刷新后显示今日已签到；无需执行")
@@ -165,10 +186,10 @@ func (r *Runner) Run(ctx context.Context) (Summary, error) {
 					if state == "" {
 						state = "未提供按钮状态"
 					}
-					partial = append(partial, fmt.Sprintf("[%s] 刷新后无可用签到入口（%s）", topic.Name, state))
+					partial = append(partial, fmt.Errorf("[%s] 刷新后无可用签到入口（%s）", topic.Name, state))
 					fmt.Fprintf(r.Options.Output, "  签到结果：未执行（刷新后无可用签到入口：%s）\n", state)
 				} else if err := r.API.Checkin(ctx, freshTopic.CheckinURL); err != nil {
-					partial = append(partial, fmt.Sprintf("[%s] 签到失败: %v", topic.Name, err))
+					partial = append(partial, fmt.Errorf("[%s] 签到失败: %w", topic.Name, err))
 					fmt.Fprintf(r.Options.Output, "  签到结果：失败（%v）\n", err)
 				} else {
 					summary.Checkins++
@@ -181,7 +202,7 @@ func (r *Runner) Run(ctx context.Context) (Summary, error) {
 				state = "未提供按钮状态"
 			}
 			fmt.Fprintf(r.Options.Output, "  签到状态：无可执行入口（%s）\n", state)
-			partial = append(partial, fmt.Sprintf("[%s] 无法确认签到状态或没有签到入口（%s）", topic.Name, state))
+			partial = append(partial, fmt.Errorf("[%s] 无法确认签到状态或没有签到入口（%s）", topic.Name, state))
 		}
 
 		history := r.State.Topic(date, topic.ID)
@@ -198,13 +219,13 @@ func (r *Runner) Run(ctx context.Context) (Summary, error) {
 		posts, err := r.API.TopicPosts(ctx, topic.ID, status.UID, r.Config.MaxFeedPages, max(r.Config.MaxPostsPerTopic, r.Config.CommentLimit+r.Config.RepostLimit), completed, feed)
 		if err != nil {
 			summary.SkippedTopics++
-			partial = append(partial, fmt.Sprintf("[%s] 获取帖子失败: %v", topic.Name, err))
+			partial = append(partial, fmt.Errorf("[%s] 获取帖子失败: %w", topic.Name, err))
 			fmt.Fprintf(r.Options.Output, "  候选帖子：读取失败，已跳过该超话（%v）\n", err)
 			continue
 		}
 		if len(posts) == 0 {
 			summary.SkippedTopics++
-			partial = append(partial, fmt.Sprintf("[%s] 未读取到可用候选帖子", topic.Name))
+			partial = append(partial, fmt.Errorf("[%s] 未读取到可用候选帖子", topic.Name))
 			fmt.Fprintf(r.Options.Output, "  候选帖子：0 条可用；已排除本人及今日已互动内容。可通过 config set --max-feed-pages 调整分页上限（当前 %d 页）。\n", r.Config.MaxFeedPages)
 			continue
 		}
@@ -216,7 +237,7 @@ func (r *Runner) Run(ctx context.Context) (Summary, error) {
 		fmt.Fprintf(r.Options.Output, "  候选帖子：%d 条；剩余任务目标：评论 %d 条，转发 %d 条；已分配不同帖子 %d 条\n",
 			len(posts), commentRemaining, repostRemaining, len(comments)+len(reposts))
 		if r.Options.DryRun && len(selected) < commentRemaining+repostRemaining {
-			partial = append(partial, fmt.Sprintf("[%s] 可用帖子不足，需要 %d 条而实际只有 %d 条", topic.Name, commentRemaining+repostRemaining, len(selected)))
+			partial = append(partial, fmt.Errorf("[%s] 可用帖子不足，需要 %d 条而实际只有 %d 条", topic.Name, commentRemaining+repostRemaining, len(selected)))
 			fmt.Fprintf(r.Options.Output, "  注意：可用帖子不足，目标需要 %d 条，本次只能分配 %d 条\n", commentRemaining+repostRemaining, len(selected))
 			fmt.Fprintf(r.Options.Output, "  读取限制：最多 %d 页、%d 条候选；已排除本人及今日已互动内容。可通过 config set --max-feed-pages 调整分页上限；帖子不足不记为全部完成。\n",
 				r.Config.MaxFeedPages, max(r.Config.MaxPostsPerTopic, r.Config.CommentLimit+r.Config.RepostLimit))
@@ -232,7 +253,7 @@ func (r *Runner) Run(ctx context.Context) (Summary, error) {
 			return summary, err
 		}
 		if unfinished != "" {
-			partial = append(partial, fmt.Sprintf("[%s] %s", topic.Name, unfinished))
+			partial = append(partial, fmt.Errorf("[%s] %s", topic.Name, unfinished))
 		}
 		if topicIndex < len(topics)-1 {
 			if err := r.delay(ctx, r.Config.TopicDelayMin, r.Config.TopicDelayMax); err != nil {
@@ -242,7 +263,7 @@ func (r *Runner) Run(ctx context.Context) (Summary, error) {
 	}
 
 	if len(partial) > 0 {
-		return summary, errors.New(strings.Join(partial, "; "))
+		return summary, partial
 	}
 	if r.Options.DryRun {
 		return summary, nil

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -18,6 +19,49 @@ import (
 	"github.com/SurrealGit/weibo-exp/internal/schedule"
 	"github.com/SurrealGit/weibo-exp/internal/weibo"
 )
+
+func TestTimeCommandsNormalizeSingleDigitHour(t *testing.T) {
+	oldInspect, oldInstall := inspectSchedule, installSchedule
+	t.Cleanup(func() { inspectSchedule, installSchedule = oldInspect, oldInstall })
+	for _, command := range []string{"config", "schedule"} {
+		t.Run(command, func(t *testing.T) {
+			dir := t.TempDir()
+			paths := app.Paths{Config: filepath.Join(dir, "config.json"), Lock: filepath.Join(dir, "run.lock"), DataDir: dir}
+			inspectSchedule = func(schedule.Config) (schedule.InstallStatus, error) {
+				return schedule.InstallStatus{Registered: true, Executable: "/tmp/weibo-exp", DataDir: dir}, nil
+			}
+			calls := 0
+			installSchedule = func(c schedule.Config) error {
+				calls++
+				if c.Hour != 7 || c.Minute != 5 {
+					t.Fatalf("native time = %02d:%02d", c.Hour, c.Minute)
+				}
+				return nil
+			}
+			var output bytes.Buffer
+			var err error
+			if command == "config" {
+				err = configCommand(context.Background(), paths, []string{"set", "--time", "7:05"}, &output, io.Discard, "https://unit.test")
+			} else {
+				err = scheduleCommand(paths, []string{"install", "--at", "7:05"}, &output, io.Discard)
+			}
+			if err != nil || calls != 1 {
+				t.Fatalf("calls=%d, err=%v", calls, err)
+			}
+			data, err := os.ReadFile(paths.Config)
+			if err != nil || !strings.Contains(string(data), `"scheduled_time": "07:05"`) {
+				t.Fatalf("time not normalized on disk: %v", err)
+			}
+			if command == "schedule" && !strings.Contains(output.String(), "每日执行时间：07:05") {
+				t.Fatal(output.String())
+			}
+			// Re-entering the same time with a short hour must not reload the scheduler.
+			if err := configCommand(context.Background(), paths, []string{"set", "--time", "7:05"}, io.Discard, io.Discard, "https://unit.test"); err != nil || calls != 1 {
+				t.Fatalf("equivalent time reinstalled schedule: calls=%d, err=%v", calls, err)
+			}
+		})
+	}
+}
 
 func TestConfigFeedPageLimit(t *testing.T) {
 	for _, value := range []int{-1, 0, 20} {

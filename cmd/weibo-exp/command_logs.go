@@ -39,7 +39,7 @@ func logsCommand(paths app.Paths, args []string, input io.Reader, output, errorO
 
 	flags := flag.NewFlagSet("logs", flag.ContinueOnError)
 	flags.SetOutput(errorOutput)
-	lineCount := flags.Int("lines", 100, "每个日志文件显示的末尾行数")
+	lineCount := flags.Int("lines", 100, "显示的最近日志总行数")
 	errorsOnly := flags.Bool("errors", false, "只显示错误日志")
 	if err := parseFlags(flags, args); err != nil {
 		return err
@@ -47,21 +47,17 @@ func logsCommand(paths app.Paths, args []string, input io.Reader, output, errorO
 	if *lineCount < 1 || *lineCount > 10000 {
 		return errors.New("--lines 必须在 1–10000 之间")
 	}
-	if !*errorsOnly {
-		if err := printLogTail(output, "定时任务日志", filepath.Join(paths.LogDir, logging.OutputFile), *lineCount); err != nil {
-			return err
-		}
-	}
-	return printLogTail(output, "定时任务错误日志", filepath.Join(paths.LogDir, logging.ErrorFile), *lineCount)
-}
-
-func printLogTail(output io.Writer, title, path string, lineCount int) error {
-	data, err := logging.Tail(path, lineCount)
+	data, err := logging.ReadTail(paths.LogDir, *lineCount, *errorsOnly)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(output, "%s（最近 %d 行）\n", title, lineCount)
-	fmt.Fprintf(output, "文件：%s\n", path)
+	if *errorsOnly {
+		fmt.Fprintf(output, "定时任务错误日志（最近 %d 行）\n", *lineCount)
+		fmt.Fprintf(output, "文件：%s\n", filepath.Join(paths.LogDir, logging.ErrorFile))
+	} else {
+		fmt.Fprintf(output, "定时任务日志（最近 %d 行，含错误记录）\n", *lineCount)
+		fmt.Fprintf(output, "日志目录：%s\n", paths.LogDir)
+	}
 	if len(data) == 0 {
 		fmt.Fprintln(output, "无记录")
 	} else if _, err := output.Write(data); err != nil {

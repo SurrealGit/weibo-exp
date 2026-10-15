@@ -63,8 +63,8 @@ func scheduleCommand(paths app.Paths, args []string, output, errorOutput io.Writ
 			return err
 		}
 		if *at != "" {
-			cfg.ScheduledTime = *at
-			if err := cfg.Validate(); err != nil {
+			cfg.ScheduledTime, err = app.NormalizeScheduledTime(*at)
+			if err != nil {
 				return err
 			}
 		}

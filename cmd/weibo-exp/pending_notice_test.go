@@ -17,7 +17,9 @@ import (
 
 	"github.com/SurrealGit/weibo-exp/internal/app"
 	"github.com/SurrealGit/weibo-exp/internal/logging"
+	"github.com/SurrealGit/weibo-exp/internal/mailnotify"
 	"github.com/SurrealGit/weibo-exp/internal/schedule"
+	"github.com/SurrealGit/weibo-exp/internal/storage"
 	"github.com/SurrealGit/weibo-exp/internal/weibo"
 )
 
@@ -207,6 +209,14 @@ func TestAutomaticRetryNoticeDoesNotClaimManualBlock(t *testing.T) {
 
 func TestLoginSuccessPreservesPendingAndShowsNotice(t *testing.T) {
 	paths, _ := pendingFixture(t)
+	_, mailConfig := mailFixture(t)
+	if err := storage.WriteJSON(filepath.Join(paths.DataDir, mailnotify.ConfigFile), mailConfig, 0600); err != nil {
+		t.Fatal(err)
+	}
+	mockMail(t, func(context.Context, mailnotify.Config, string, string) error {
+		t.Fatal("login must not send automatic mail")
+		return nil
+	})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/sso/signin":
