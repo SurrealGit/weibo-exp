@@ -24,13 +24,14 @@ func statusCommand(ctx context.Context, paths app.Paths, cfg app.Config, client 
 		return err
 	}
 	manual, retry := pendingCounts(state)
+	mailStatus := mailNotificationStatus(paths)
 	if !*asJSON {
 		defer printPendingNotice(output, paths, state)
 	}
 	status, err := client.LoginStatus(ctx)
 	if err != nil {
 		if *asJSON {
-			result := map[string]any{"error": err.Error(), "pending_deletes": len(state.PendingDeletes), "pending_manual_checks": manual, "pending_retry_deletes": retry}
+			result := map[string]any{"error": err.Error(), "pending_deletes": len(state.PendingDeletes), "pending_manual_checks": manual, "pending_retry_deletes": retry, "mail_notification_status": mailStatus}
 			if errors.Is(err, weibo.ErrNotLoggedIn) {
 				result["login"] = false
 			}
@@ -44,6 +45,7 @@ func statusCommand(ctx context.Context, paths app.Paths, cfg app.Config, client 
 		fmt.Fprintln(output, "今日任务：暂无法获取实时状态。")
 		fmt.Fprintf(output, "每日执行时间：%s\n", cfg.ScheduledTime)
 		printScheduleState(output, paths)
+		printMailNotificationStatus(output, paths, mailStatus)
 		printLogRetention(output, cfg.LogRetentionDays)
 		return err
 	}
@@ -64,6 +66,7 @@ func statusCommand(ctx context.Context, paths app.Paths, cfg app.Config, client 
 		"today": today, "today_complete": todayComplete, "today_completed_topics": progress.Completed,
 		"today_remaining_topics": progress.Remaining, "pending_deletes": len(state.PendingDeletes),
 		"pending_manual_checks": manual, "pending_retry_deletes": retry,
+		"mail_notification_status": mailStatus,
 	}
 	if *asJSON {
 		return writeJSON(output, result)
@@ -83,6 +86,7 @@ func statusCommand(ctx context.Context, paths app.Paths, cfg app.Config, client 
 	}
 	fmt.Fprintf(output, "每日执行时间：%s\n", cfg.ScheduledTime)
 	printScheduleState(output, paths)
+	printMailNotificationStatus(output, paths, mailStatus)
 	printLogRetention(output, cfg.LogRetentionDays)
 	return nil
 }

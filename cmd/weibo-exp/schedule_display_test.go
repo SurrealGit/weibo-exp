@@ -101,8 +101,14 @@ func TestStatusAndConfigScheduleTextOnly(t *testing.T) {
 				if queries != 0 || !json.Valid(out.Bytes()) || strings.Contains(out.String(), "定时任务状态") {
 					t.Fatalf("JSON changed: %s queries=%d", &out, queries)
 				}
-			} else if queries != 1 || !strings.Contains(out.String(), "每日执行时间：10:00\n定时任务状态：未安装\n日志自动清理：") {
-				t.Fatalf("%s: %s queries=%d", name, &out, queries)
+			} else {
+				want := "每日执行时间：10:00\n定时任务状态：未安装\n"
+				if name == "status" {
+					want += "邮件通知：未配置\n"
+				}
+				if queries != 1 || !strings.Contains(out.String(), want+"日志自动清理：") {
+					t.Fatalf("%s: %s queries=%d", name, &out, queries)
+				}
 			}
 		}
 	}

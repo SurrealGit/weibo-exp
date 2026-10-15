@@ -23,6 +23,33 @@ import (
 
 var sendNotification = mailnotify.Send
 
+func mailNotificationStatus(paths app.Paths) string {
+	cfg, err := loadMailConfig(filepath.Join(paths.DataDir, mailnotify.ConfigFile))
+	if err != nil {
+		return "invalid"
+	}
+	if cfg.Host == "" {
+		return "unconfigured"
+	}
+	if cfg.Enabled {
+		return "enabled"
+	}
+	return "disabled"
+}
+
+func printMailNotificationStatus(output io.Writer, paths app.Paths, status string) {
+	switch status {
+	case "enabled":
+		fmt.Fprintln(output, "邮件通知：已启用")
+	case "disabled":
+		fmt.Fprintln(output, "邮件通知：已配置，未启用")
+	case "invalid":
+		fmt.Fprintf(output, "邮件通知：配置异常，执行 %s 查看详情\n", commandFor(paths, "notify status"))
+	default:
+		fmt.Fprintln(output, "邮件通知：未配置")
+	}
+}
+
 func loadMailConfig(path string) (mailnotify.Config, error) {
 	var cfg mailnotify.Config
 	data, err := os.ReadFile(path)

@@ -182,6 +182,8 @@ weibo-exp schedule install
 
 `status` 和 `config show` 同时显示每日执行时间与定时任务安装状态。任务属于其他数据目录时会提示；详细设置可执行 `weibo-exp schedule status` 查看。尚未安装时，执行 `weibo-exp schedule install` 开启自动运行。
 
+`status` 还显示邮件通知是否已配置、已启用，配置异常时提示查看详情；这里只读取本地配置，不连接邮箱服务器。`status --json` 的 `mail_notification_status` 字段对应 `unconfigured`（未配置）、`disabled`（已配置，未启用）、`enabled`（已启用）或 `invalid`（配置异常）。
+
 ## 日常使用
 
 以下命令适用于 macOS、Windows PowerShell 和 Linux，在任意目录执行即可。每行是一条独立命令，可按需选择。
