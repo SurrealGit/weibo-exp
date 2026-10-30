@@ -58,7 +58,10 @@ func (r *Runner) interact(ctx context.Context, topicID string, post weibo.Post, 
 				return errors.Join(failure, saveErr)
 			}
 			if kind == "comment" && rejected.CommentRestricted {
-				return &postRestrictionError{failure}
+				return &postRestrictionError{failure, "该帖限制评论"}
+			}
+			if rejected.PostUnavailable {
+				return &postRestrictionError{failure, "原帖不存在"}
 			}
 			return failure
 		}

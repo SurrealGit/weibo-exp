@@ -27,10 +27,10 @@ func cleanupCommand(paths app.Paths, args []string, input io.Reader, output, err
 			return err
 		}
 		if len(args) == 1 {
-			return fmt.Errorf("未指定需要确认的记录，本次未作任何修改。\n执行 %s 查看详情和完整确认命令。", commandFor(paths, "cleanup"))
+			return fmt.Errorf("未指定需要确认的记录，本次未作任何修改。\n%s", commandInstruction(paths, "cleanup", "查看详情和完整确认命令"))
 		}
 		if (*kind != "comment" && *kind != "repost") || (*id == "") == (*post == "") {
-			return fmt.Errorf("未正确指定需要确认的记录，本次未作任何修改。\n执行 %s 查看详情和完整确认命令。", commandFor(paths, "cleanup"))
+			return fmt.Errorf("未正确指定需要确认的记录，本次未作任何修改。\n%s", commandInstruction(paths, "cleanup", "查看详情和完整确认命令"))
 		}
 	}
 	release, err := runner.AcquireLock(paths.Lock)
@@ -66,7 +66,7 @@ func cleanupCommand(paths app.Paths, args []string, input io.Reader, output, err
 				fmt.Fprintf(output, "记录时间：%s\n", item.CreatedAt.Local().Format("2006-01-02 15:04:05"))
 			}
 			fmt.Fprintf(output, "原帖 ID：%s\n%s ID：%s\n", item.SourcePostID, label, id)
-			fmt.Fprintf(output, "\n核查后，执行以下命令移除待处理记录：\n%s\n", commandFor(paths, "cleanup confirm --kind "+commandArg(item.Kind)+" "+selector))
+			fmt.Fprintf(output, "\n核查后，%s\n", commandInstruction(paths, "cleanup confirm --kind "+commandArg(item.Kind)+" "+selector, "移除待处理记录"))
 		}
 		fmt.Fprintln(output, "\n请在微博 App 中检查对应内容。")
 		if len(state.PendingDeletes) == 1 && state.PendingDeletes[0].Kind == "repost" {
@@ -77,7 +77,7 @@ func cleanupCommand(paths app.Paths, args []string, input io.Reader, output, err
 		fmt.Fprintln(output, "以上命令只移除本地记录，不会删除微博内容。")
 		_, retry := pendingCounts(state)
 		if retry > 0 {
-			fmt.Fprintf(output, "\n有内容 ID 的记录可自动重试删除；需要人工核查的记录处理后，\n可等待定时执行，或执行 %s 立即重试。\n", commandFor(paths, "run"))
+			fmt.Fprintf(output, "\n有内容 ID 的记录可自动重试删除；需要人工核查的记录处理后，可等待定时执行。\n%s\n", commandInstruction(paths, "run", "立即重试"))
 		}
 		return nil
 	}
@@ -107,10 +107,10 @@ func cleanupCommand(paths app.Paths, args []string, input io.Reader, output, err
 	}
 	fmt.Fprintln(output, "已移除指定待处理记录，互动进度保留。")
 	if len(state.PendingDeletes) == 0 {
-		fmt.Fprintf(output, "暂无其他待处理记录。\n\n可以等待下次定时任务重新检查，\n也可执行 %s 立即检查。\n", commandFor(paths, "run"))
+		fmt.Fprintf(output, "暂无其他待处理记录。\n\n可以等待下次定时任务重新检查。\n%s\n", commandInstruction(paths, "run", "立即检查"))
 	} else {
 		manual, _ := pendingCounts(state)
-		fmt.Fprintf(output, "剩余待处理内容：%d 条，其中 %d 条需要人工核查。\n执行 %s 查看详情和处理命令。\n", len(state.PendingDeletes), manual, commandFor(paths, "cleanup"))
+		fmt.Fprintf(output, "剩余待处理内容：%d 条，其中 %d 条需要人工核查。\n%s\n", len(state.PendingDeletes), manual, commandInstruction(paths, "cleanup", "查看详情和处理命令"))
 	}
 	return nil
 }

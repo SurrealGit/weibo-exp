@@ -3,7 +3,9 @@ package scripts
 import (
 	"archive/tar"
 	"archive/zip"
+	"bytes"
 	"compress/gzip"
+	"debug/pe"
 	"flag"
 	"io"
 	"os"
@@ -30,6 +32,26 @@ func TestReleaseMetadata(t *testing.T) {
 					checkMetadataName(t, entry.Name)
 					if len(entry.Extra) != 0 {
 						t.Errorf("%s: unexpected ZIP extra fields", entry.Name)
+					}
+					if entry.Name == "weibo-exp.exe" {
+						reader, err := entry.Open()
+						if err != nil {
+							t.Fatal(err)
+						}
+						data, err := io.ReadAll(reader)
+						_ = reader.Close()
+						if err != nil {
+							t.Fatal(err)
+						}
+						binary, err := pe.NewFile(bytes.NewReader(data))
+						if err != nil {
+							t.Fatal(err)
+						}
+						defer binary.Close()
+						header, ok := binary.OptionalHeader.(*pe.OptionalHeader64)
+						if !ok || header.Subsystem != pe.IMAGE_SUBSYSTEM_WINDOWS_CUI {
+							t.Fatal("main Windows program must remain a console application")
+						}
 					}
 				}
 				return

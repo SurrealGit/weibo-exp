@@ -1,4 +1,5 @@
 /dist/
+/internal/schedule/launcher/*.exe
 /.local/
 __pycache__/
 *.pyc

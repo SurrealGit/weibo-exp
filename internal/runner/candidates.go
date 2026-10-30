@@ -10,7 +10,10 @@ import (
 
 // Returned only after a definite refusal and successful removal of the saved
 // creation intent. Persistence/deletion errors must never permit fallback.
-type postRestrictionError struct{ error }
+type postRestrictionError struct {
+	error
+	reason string
+}
 
 func (r *Runner) runInteractions(ctx context.Context, topicID, date string, status weibo.LoginStatus, posts []weibo.Post, completed []string, feed *weibo.PostFeed, comments, reposts int, summary *Summary) (string, error) {
 	excluded := append([]string(nil), completed...)
@@ -66,7 +69,7 @@ func (r *Runner) runInteractions(ctx context.Context, topicID, date string, stat
 				if !errors.As(err, &restricted) {
 					return "", err
 				}
-				fmt.Fprintf(r.Options.Output, "  评论已跳过（原帖 %s）：该帖限制评论；将尝试其他候选。\n", post.MID)
+				fmt.Fprintf(r.Options.Output, "  %s已跳过（原帖 %s）：%s；将尝试其他候选。\n", pendingKindName(kind), post.MID, restricted.reason)
 				if err := r.delay(ctx, r.Config.ActionDelayMin, r.Config.ActionDelayMax); err != nil {
 					return "", err
 				}

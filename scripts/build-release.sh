@@ -11,6 +11,7 @@ export GOCACHE GOMODCACHE CGO_ENABLED=0
 for tool in go tar zip shasum; do
   command -v "$tool" >/dev/null || { echo "发行构建需要开发工具：$tool" >&2; exit 1; }
 done
+go generate ./internal/schedule
 version=$(sed -n 's/^const Version = "\([^"]*\)"$/\1/p' internal/app/config.go)
 case "$version" in
   ''|*[!0-9.]*) echo "无法读取发行版本号" >&2; exit 1 ;;

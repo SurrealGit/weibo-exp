@@ -26,20 +26,43 @@ func pendingCounts(state app.State) (manual, retry int) {
 var simpleCommandArg = regexp.MustCompile(`^[a-zA-Z0-9_./:-]+$`)
 
 func commandArg(value string) string {
+	return commandArgForOS(value, runtime.GOOS)
+}
+
+func commandArgForOS(value, goos string) string {
 	if simpleCommandArg.MatchString(value) {
 		return value
 	}
-	if runtime.GOOS == "windows" {
+	if goos == "windows" {
+		// Recovery commands are explicitly labelled for PowerShell. Literal
+		// strings preserve dollar signs and backticks; double embedded apostrophes.
 		return "'" + strings.ReplaceAll(value, "'", "''") + "'"
 	}
 	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
+}
+
+func commandInstruction(paths app.Paths, command, purpose string) string {
+	return commandInstructionForOS(commandFor(paths, command), purpose, runtime.GOOS)
+}
+
+func commandInstructionForOS(command, purpose, goos string) string {
+	if goos == "windows" {
+		return "请在 PowerShell 中执行以下命令" + purpose + "：\n" + command
+	}
+	return "执行 " + command + " " + purpose + "。"
 }
 
 func commandFor(paths app.Paths, command string) string {
 	prefix := "weibo-exp"
 	defaultDir, err := os.UserConfigDir()
 	if paths.DataDir != "" && (err != nil || filepath.Clean(paths.DataDir) != filepath.Join(defaultDir, "weibo-exp")) {
-		prefix += " --data-dir " + commandArg(paths.DataDir)
+		dataDir := filepath.Clean(paths.DataDir)
+		// Avoid a trailing backslash before a native argument's closing quote
+		// in Windows PowerShell 5.1. Clean preserves it for volume/share roots.
+		if runtime.GOOS == "windows" && strings.HasSuffix(dataDir, `\`) {
+			dataDir += "."
+		}
+		prefix += " --data-dir " + commandArg(dataDir)
 	}
 	return prefix + " " + command
 }
@@ -65,10 +88,10 @@ func pendingNotice(paths app.Paths, state app.State) string {
 		if reposts == manual {
 			what = fmt.Sprintf("%d 条转发", manual)
 		}
-		return fmt.Sprintf("注意：任务执行受阻，有 %s需要人工核查。\n执行 %s 查看详情和处理命令。", what, commandFor(paths, "cleanup"))
+		return fmt.Sprintf("注意：任务执行受阻，有 %s需要人工核查。\n%s", what, commandInstruction(paths, "cleanup", "查看详情和处理命令"))
 	}
 	if retry > 0 {
-		return fmt.Sprintf("提醒：有 %d 条待清理内容，下次定时任务会先重试删除。\n也可执行 %s 立即重试，或执行 %s 查看详情。", retry, commandFor(paths, "run"), commandFor(paths, "cleanup"))
+		return fmt.Sprintf("提醒：有 %d 条待清理内容，下次定时任务会先重试删除。\n%s\n%s", retry, commandInstruction(paths, "run", "立即重试"), commandInstruction(paths, "cleanup", "查看详情"))
 	}
 	return ""
 }

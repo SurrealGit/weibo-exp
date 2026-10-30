@@ -18,7 +18,7 @@ func RenderWindowsTaskXML(cfg Config) ([]byte, error) {
 	if strings.ContainsAny(cfg.Executable+cfg.DataDir, `"`) {
 		return nil, errors.New("Windows 调度路径不得含双引号")
 	}
-	arguments := "--data-dir " + windowsQuote(cfg.DataDir) + " scheduled-run"
+	arguments := "--executable " + windowsQuote(cfg.Executable) + " --data-dir " + windowsQuote(cfg.DataDir) + " scheduled-run"
 	// Separate daily triggers avoid repeating past midnight into the next day.
 	var triggers strings.Builder
 	for hour := cfg.Hour; hour < 24; hour += 4 {
@@ -33,7 +33,7 @@ func RenderWindowsTaskXML(cfg Config) ([]byte, error) {
   <Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><StartWhenAvailable>true</StartWhenAvailable><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><ExecutionTimeLimit>PT0S</ExecutionTimeLimit></Settings>
   <Actions Context="Author"><Exec><Command>%s</Command><Arguments>%s</Arguments></Exec></Actions>
 </Task>
-`, triggers.String(), escapeXML(cfg.Executable), escapeXML(arguments))
+`, triggers.String(), escapeXML(launcherPath(cfg.DataDir)), escapeXML(arguments))
 	if err := validateXML([]byte(document)); err != nil {
 		return nil, err
 	}
@@ -52,17 +52,58 @@ func installWindows(cfg Config) error {
 	if oldErr != nil && !errors.Is(oldErr, os.ErrNotExist) {
 		return oldErr
 	}
-	if err := installWindowsXML(data); err != nil {
-		if oldErr == nil {
-			if restoreErr := installWindowsXML(old); restoreErr != nil {
-				return errors.Join(err, fmt.Errorf("恢复旧 Windows 任务失败: %w", restoreErr))
-			}
-		} else if cleanupErr := uninstallWindows(); cleanupErr != nil {
-			return errors.Join(err, fmt.Errorf("清理新建 Windows 任务失败: %w", cleanupErr))
-		}
+	snapshot, err := readLauncher(cfg.DataDir)
+	if err != nil {
 		return err
 	}
+	// A data-directory switch must not leave the previous helper behind.
+	var previous *launcherSnapshot
+	if oldErr == nil {
+		_, dir := windowsArguments(string(old))
+		if dir != "" && !strings.EqualFold(dir, cfg.DataDir) && xmlUnescape(regexpValue(string(old), `<Command>(.*?)</Command>`)) == launcherPath(dir) {
+			s, err := readLauncher(dir)
+			if err != nil {
+				return err
+			}
+			if !strings.EqualFold(s.path, snapshot.path) {
+				previous = &s
+			}
+		}
+	}
+	if err := writeLauncher(snapshot); err != nil {
+		return err
+	}
+	rollback := func(cause error) error {
+		if oldErr == nil {
+			if restoreErr := installWindowsXML(old); restoreErr != nil {
+				// Preserve the new helper while the registered task is uncertain.
+				return errors.Join(cause, fmt.Errorf("恢复旧 Windows 任务失败: %w", restoreErr))
+			}
+		} else if cleanupErr := uninstallWindows(); cleanupErr != nil {
+			return errors.Join(cause, fmt.Errorf("清理新建 Windows 任务失败: %w", cleanupErr))
+		}
+		return errors.Join(cause, snapshot.restore())
+	}
+	if err := installWindowsXML(data); err != nil {
+		return rollback(err)
+	}
+	if previous != nil {
+		if err := previous.remove(); err != nil {
+			return rollback(err)
+		}
+	}
 	return nil
+}
+
+func uninstallWindowsWithLauncher(cfg Config) error {
+	snapshot, err := readLauncher(cfg.DataDir)
+	if err != nil {
+		return err
+	}
+	if err := uninstallWindows(); err != nil {
+		return err
+	}
+	return snapshot.remove()
 }
 
 func uninstallWindows() error {
@@ -196,6 +237,13 @@ func windowsTime(text string) string {
 func windowsArguments(text string) (string, string) {
 	executable := xmlUnescape(regexpValue(text, `<Command>(.*?)</Command>`))
 	arguments := xmlUnescape(regexpValue(text, `<Arguments>(.*?)</Arguments>`))
+	if strings.HasPrefix(arguments, "--executable ") {
+		main, rest, ok := consumeWindowsQuoted(strings.TrimPrefix(arguments, "--executable "))
+		if !ok {
+			return "", ""
+		}
+		executable, arguments = main, strings.TrimSpace(rest)
+	}
 	marker := "--data-dir "
 	index := strings.Index(arguments, marker)
 	if index < 0 {
@@ -213,6 +261,24 @@ func windowsArguments(text string) (string, string) {
 		value = trimmed + strings.Repeat(`\`, trailing/2)
 	}
 	return executable, value
+}
+
+func consumeWindowsQuoted(value string) (string, string, bool) {
+	if !strings.HasPrefix(value, `"`) {
+		return "", "", false
+	}
+	i := strings.Index(value[1:], `"`)
+	if i < 0 {
+		return "", "", false
+	}
+	i++
+	inner := value[1:i]
+	trimmed := strings.TrimRight(inner, `\`)
+	trailing := len(inner) - len(trimmed)
+	if trailing%2 != 0 {
+		return "", "", false
+	}
+	return trimmed + strings.Repeat(`\`, trailing/2), value[i+1:], true
 }
 
 func windowsQuote(value string) string {

@@ -38,7 +38,7 @@ func statusCommand(ctx context.Context, paths app.Paths, cfg app.Config, client 
 			return errors.Join(err, writeJSON(output, result))
 		}
 		if errors.Is(err, weibo.ErrNotLoggedIn) {
-			fmt.Fprintf(output, "账户状态：登录已失效，执行 %s 重新登录。\n", commandFor(paths, "login"))
+			fmt.Fprintf(output, "账户状态：登录已失效。\n%s\n", commandInstruction(paths, "login", "重新登录"))
 		} else {
 			fmt.Fprintln(output, "账户状态：暂无法确认。")
 		}

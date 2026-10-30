@@ -120,7 +120,7 @@ func smtpFixture(t *testing.T, options serverOptions) (Config, *tls.Config, <-ch
 	t.Cleanup(func() { listener.Close(); <-done })
 	_, portString, _ := net.SplitHostPort(listener.Addr().String())
 	port, _ := strconv.Atoi(portString)
-	cfg := Config{Enabled: true, Host: "127.0.0.1", Port: port, Security: options.security, Username: "sender@example.com", Password: "secret-password", From: "sender@example.com", To: "receiver@example.com"}
+	cfg := Config{Host: "127.0.0.1", Port: port, Security: options.security, Username: "sender@example.com", Password: "secret-password", From: "sender@example.com", To: "receiver@example.com"}
 	return cfg, &tls.Config{RootCAs: pool, ServerName: cfg.Host, MinVersion: tls.VersionTLS12}, messages
 }
 

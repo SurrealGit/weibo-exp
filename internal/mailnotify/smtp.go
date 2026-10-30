@@ -20,14 +20,15 @@ const ConfigFile = "smtp.json"
 const StateFile = "notification-state.json"
 
 type Config struct {
-	Enabled  bool   `json:"enabled"`
-	Host     string `json:"host"`
-	Port     int    `json:"port"`
-	Security string `json:"security"`
-	Username string `json:"username"`
-	Password string `json:"password"`
-	From     string `json:"from"`
-	To       string `json:"to"`
+	ErrorsEnabled  bool   `json:"errors_enabled"`
+	SuccessEnabled bool   `json:"success_enabled"`
+	Host           string `json:"host"`
+	Port           int    `json:"port"`
+	Security       string `json:"security"`
+	Username       string `json:"username"`
+	Password       string `json:"password"`
+	From           string `json:"from"`
+	To             string `json:"to"`
 }
 
 // SecurityMode resolves user-facing aliases without changing stored settings.

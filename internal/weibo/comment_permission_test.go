@@ -45,3 +45,48 @@ func TestOnlyConfirmedCommentPermissionRefusalAllowsFallback(t *testing.T) {
 		}
 	}
 }
+
+func TestOnlyConfirmedMissingPostCreationRefusalAllowsFallback(t *testing.T) {
+	for _, tc := range []struct {
+		name, body string
+		status     int
+		want       bool
+	}{
+		{"missing", `{"ok":0,"msg":"该微博不存在"}`, 200, true},
+		{"punctuation", `{"ok":0,"msg":" 该微博不存在！ "}`, 200, true},
+		{"different meaning", `{"ok":0,"msg":"无法确认该微博不存在"}`, 200, false},
+		{"rate limit", `{"ok":0,"msg":"操作过于频繁"}`, 200, false},
+		{"authentication", `{"ok":-100,"msg":"该微博不存在"}`, 200, false},
+		{"unknown envelope", `{"msg":"该微博不存在"}`, 200, false},
+		{"success", `{"ok":1,"msg":"该微博不存在","data":{"id":"123"}}`, 200, false},
+		{"forbidden", `{"ok":0,"msg":"该微博不存在"}`, 403, false},
+		{"not found", `{"ok":0,"msg":"该微博不存在"}`, 404, false},
+		{"invalid json", `{"ok":0,"msg":"该微博不存在"`, 200, false},
+	} {
+		for _, kind := range []string{"comment", "repost", "delete comment", "delete repost", "read"} {
+			t.Run(tc.name+"/"+kind, func(t *testing.T) {
+				client := NewClient("https://example.invalid", &http.Client{Transport: fixedTransport(func(*http.Request) (*http.Response, error) {
+					return &http.Response{StatusCode: tc.status, Body: io.NopCloser(strings.NewReader(tc.body)), Header: make(http.Header)}, nil
+				})})
+				var err error
+				switch kind {
+				case "comment":
+					_, err = client.Comment(context.Background(), "1", "test", "st")
+				case "repost":
+					_, err = client.Repost(context.Background(), "1", "st")
+				case "delete comment":
+					err = client.DeleteComment(context.Background(), "1", "st")
+				case "delete repost":
+					err = client.DeleteRepost(context.Background(), "1", "st")
+				case "read":
+					_, err = client.getData(context.Background(), "/api/comments/create")
+				}
+				var rejected *RejectedError
+				got := errors.As(err, &rejected) && rejected.PostUnavailable
+				if got != (tc.want && (kind == "comment" || kind == "repost")) {
+					t.Fatalf("unavailable=%v err=%v", got, err)
+				}
+			})
+		}
+	}
+}

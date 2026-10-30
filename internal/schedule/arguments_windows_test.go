@@ -34,6 +34,12 @@ func TestWindowsTaskArgumentsNativeParser(t *testing.T) {
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("parsed = %q, want %q", got, want)
 		}
+		exe := `C:\程序 space\weibo-exp.exe`
+		got = parse("launcher.exe --executable " + windowsQuote(exe) + " --data-dir " + windowsQuote(path) + " scheduled-run")
+		want = []string{"launcher.exe", "--executable", exe, "--data-dir", path, "scheduled-run"}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("launcher parsed = %q, want %q", got, want)
+		}
 	}
 	// Regression control: the previous literal quoting consumes scheduled-run.
 	old := parse(`weibo-exp.exe --data-dir "C:\" scheduled-run`)

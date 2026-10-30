@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -20,7 +21,10 @@ func TestNativeWindowsIsolatedLifecycle(t *testing.T) {
 	if runtime.GOOS != "windows" || os.Getenv("WEIBO_TEST_NATIVE_WINDOWS") != "1" {
 		t.Skip("opt-in Windows acceptance: WEIBO_TEST_NATIVE_WINDOWS=1")
 	}
-	dir := t.TempDir()
+	dir := filepath.Join(t.TempDir(), "数据 space")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
 	probe, err := os.ReadFile(os.Getenv("WEIBO_TEST_WINDOWS_PROBE"))
 	if err != nil {
 		t.Fatal(err)
@@ -92,16 +96,19 @@ func TestNativeWindowsIsolatedLifecycle(t *testing.T) {
 	events := func() []struct {
 		Time     time.Time
 		Elevated bool
+		Console  *uintptr
 	} {
 		data, _ := os.ReadFile(filepath.Join(dir, "events.jsonl"))
 		var result []struct {
 			Time     time.Time
 			Elevated bool
+			Console  *uintptr
 		}
 		for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
 			var event struct {
 				Time     time.Time
 				Elevated bool
+				Console  *uintptr
 			}
 			if json.Unmarshal([]byte(line), &event) == nil {
 				result = append(result, event)
@@ -124,10 +131,19 @@ func TestNativeWindowsIsolatedLifecycle(t *testing.T) {
 	}
 	waitFor(time.Now().Add(20*time.Second), func() bool { return len(events()) > 0 })
 	for _, event := range events() {
+		if event.Console == nil || *event.Console != 0 {
+			t.Fatalf("scheduled probe has console or lacks console check: %+v", event)
+		}
 		if event.Elevated {
 			t.Fatal("LeastPrivilege probe ran elevated")
 		}
 	}
+	waitFor(time.Now().Add(15*time.Second), func() bool {
+		output, err := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "(Get-ScheduledTaskInfo -TaskName '"+name+"').LastTaskResult").Output()
+		result, parseErr := strconv.Atoi(strings.TrimSpace(string(output)))
+		return err == nil && parseErr == nil && result == 7
+	})
+	t.Log("Task Scheduler preserved child exit code 7; console handle was 0")
 	t.Log("native manual trigger executed with standard-user token")
 	due := time.Now().Add(90 * time.Second).Truncate(time.Minute)
 	cfg.Hour, cfg.Minute = due.Hour(), due.Minute()
@@ -148,11 +164,16 @@ func TestNativeWindowsIsolatedLifecycle(t *testing.T) {
 		return false
 	})
 	t.Logf("native events: %+v", events())
+	for _, event := range events() {
+		if event.Console == nil || *event.Console != 0 {
+			t.Fatal("calendar-triggered probe had a console")
+		}
+	}
 	if err := Uninstall(cfg); err != nil {
 		t.Fatal(err)
 	}
 	status, err = Inspect(cfg)
-	if err != nil || status.Registered {
+	if err != nil || status.Registered || status.FileExists {
 		t.Fatalf("native uninstall: %+v %v", status, err)
 	}
 	t.Log("production uninstall verified")

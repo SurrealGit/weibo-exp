@@ -111,7 +111,7 @@ func Uninstall(cfg Config) error {
 	case "linux":
 		return uninstallSystemd(cfg)
 	case "windows":
-		return uninstallWindows()
+		return uninstallWindowsWithLauncher(cfg)
 	default:
 		_, err := BackendName()
 		return err
@@ -125,7 +125,18 @@ func Inspect(cfg Config) (InstallStatus, error) {
 	case "linux":
 		return inspectSystemd(cfg)
 	case "windows":
-		return inspectWindows()
+		status, err := inspectWindows()
+		if err == nil && !status.Registered {
+			residual, readErr := readLauncher(cfg.DataDir)
+			if readErr != nil {
+				return status, readErr
+			}
+			status.FileExists = residual.hasBinary || residual.hasReceipt
+			if status.FileExists {
+				status.DataDir = cfg.DataDir
+			}
+		}
+		return status, err
 	default:
 		_, err := BackendName()
 		return InstallStatus{}, err

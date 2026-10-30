@@ -171,7 +171,8 @@ func TestSystemdLifecycleWithFakeCommands(t *testing.T) {
 }
 
 func TestWindowsLifecycleWithFakeCommands(t *testing.T) {
-	cfg := Config{Executable: `C:\Apps\Weibo Exp\weibo-exp.exe`, DataDir: `C:\Users\test\Data`, Hour: 8, Minute: 5}
+	fakeLauncher(t)
+	cfg := Config{Executable: `C:\Apps\Weibo Exp\weibo-exp.exe`, DataDir: launcherTestDir(t), Hour: 8, Minute: 5}
 	oldOS, oldLook, oldRun := currentGOOS, lookPath, runCommand
 	defer func() { currentGOOS, lookPath, runCommand = oldOS, oldLook, oldRun }()
 	currentGOOS = "windows"

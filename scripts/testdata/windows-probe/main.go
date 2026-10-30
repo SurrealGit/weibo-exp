@@ -32,6 +32,7 @@ func main() {
 	if ok == 0 {
 		panic(err)
 	}
+	window, _, _ := syscall.NewLazyDLL("kernel32.dll").NewProc("GetConsoleWindow").Call()
 	f, err := os.OpenFile(filepath.Join(*dir, "events.jsonl"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
 	if err != nil {
 		panic(err)
@@ -40,7 +41,10 @@ func main() {
 	if err := json.NewEncoder(f).Encode(struct {
 		Time     time.Time
 		Elevated bool
-	}{time.Now(), elevation != 0}); err != nil {
+		Console  *uintptr
+	}{time.Now(), elevation != 0, &window}); err != nil {
 		panic(err)
 	}
+	_ = f.Close()
+	os.Exit(7) // Verify propagation through the launcher and Task Scheduler.
 }

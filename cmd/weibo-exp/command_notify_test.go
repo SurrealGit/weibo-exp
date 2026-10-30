@@ -27,7 +27,7 @@ func mailFixture(t *testing.T) (app.Paths, mailnotify.Config) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := mailnotify.Config{Enabled: true, Host: "smtp.example.com", Port: 465, Security: "tls", Username: "sender@example.com", Password: "secret-password", From: "sender@example.com", To: "recipient@example.com"}
+	cfg := mailnotify.Config{ErrorsEnabled: true, SuccessEnabled: true, Host: "smtp.example.com", Port: 465, Security: "tls", Username: "sender@example.com", Password: "secret-password", From: "sender@example.com", To: "recipient@example.com"}
 	if err := storage.WriteJSON(filepath.Join(paths.DataDir, mailnotify.ConfigFile), cfg, 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestNotifyConfigurationAndCommands(t *testing.T) {
 	if err := call("status"); err != nil || !strings.Contains(output.String(), cfg.To) || strings.Contains(output.String(), cfg.Password) {
 		t.Fatalf("unsafe status: %v", err)
 	}
-	if !strings.Contains(output.String(), "提醒内容：任务异常、每日完成") || !strings.Contains(output.String(), "每日完成最多一封") {
+	if !strings.Contains(output.String(), "异常提醒：已开启\n每日完成邮件：已开启") || !strings.Contains(output.String(), "每日完成最多一封") {
 		t.Fatal("status omitted completion notifications")
 	}
 	if !strings.Contains(output.String(), commandFor(paths, "notify test")) {
@@ -90,14 +90,14 @@ func TestNotifyConfigurationAndCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	saved, err := loadMailConfig(configPath)
-	if err != nil || saved.Enabled || saved.Password != cfg.Password {
+	if err != nil || saved.ErrorsEnabled || saved.SuccessEnabled || saved.Password != cfg.Password {
 		t.Fatal("disable did not preserve credentials")
 	}
 	if err := call("test"); err != nil || count != 1 {
 		t.Fatalf("explicit test did not send: %v", err)
 	}
 	saved, err = loadMailConfig(configPath)
-	if err != nil || saved.Enabled {
+	if err != nil || saved.ErrorsEnabled || saved.SuccessEnabled {
 		t.Fatal("test enabled automatic notifications")
 	}
 	if _, err := os.Stat(statePath); !errors.Is(err, os.ErrNotExist) {
@@ -112,23 +112,24 @@ func TestNotifyConfigurationAndCommands(t *testing.T) {
 }
 
 func TestNotifyConfigurePreservesSwitch(t *testing.T) {
-	for _, mode := range []string{"first", "enabled", "disabled"} {
+	for _, mode := range []string{"first", "enabled", "disabled", "errors only", "success only"} {
 		t.Run(mode, func(t *testing.T) {
 			paths, cfg := mailFixture(t)
 			configPath := filepath.Join(paths.DataDir, mailnotify.ConfigFile)
-			enabled := mode == "enabled"
+			errorsEnabled := mode == "enabled" || mode == "errors only"
+			successEnabled := mode == "enabled" || mode == "success only"
 			if mode == "first" {
 				if err := os.Remove(configPath); err != nil {
 					t.Fatal(err)
 				}
 			} else {
-				cfg.Enabled = enabled
+				cfg.ErrorsEnabled, cfg.SuccessEnabled = errorsEnabled, successEnabled
 				if err := storage.WriteJSON(configPath, cfg, 0600); err != nil {
 					t.Fatal(err)
 				}
 			}
 			// Even an explicitly opposite switch in the source cannot toggle it.
-			cfg.Enabled = !enabled
+			cfg.ErrorsEnabled, cfg.SuccessEnabled = !errorsEnabled, !successEnabled
 			cfg.To = "updated@example.com"
 			source := filepath.Join(t.TempDir(), "smtp.json")
 			if err := storage.WriteJSON(source, cfg, 0600); err != nil {
@@ -143,10 +144,10 @@ func TestNotifyConfigurePreservesSwitch(t *testing.T) {
 				t.Fatal(err)
 			}
 			saved, err := loadMailConfig(configPath)
-			if err != nil || saved.Enabled != enabled || saved.To != cfg.To {
+			if err != nil || saved.ErrorsEnabled != errorsEnabled || saved.SuccessEnabled != successEnabled || saved.To != cfg.To {
 				t.Fatalf("import failed to preserve switch: mode=%s err=%v", mode, err)
 			}
-			if !enabled && !strings.Contains(output.String(), commandFor(paths, "notify enable")) {
+			if !errorsEnabled && !successEnabled && !strings.Contains(output.String(), commandFor(paths, "notify enable")) {
 				t.Fatal("missing custom-directory enable guidance")
 			}
 		})
@@ -224,7 +225,7 @@ func TestNotifyEnableDisablePreserveDedup(t *testing.T) {
 		}
 		saved, err := loadMailConfig(filepath.Join(paths.DataDir, mailnotify.ConfigFile))
 		expected := original
-		expected.Enabled = command == "enable"
+		expected.ErrorsEnabled, expected.SuccessEnabled = command == "enable", command == "enable"
 		if err != nil || saved != expected {
 			t.Fatalf("toggle changed SMTP settings: %s err=%v", command, err)
 		}
@@ -348,7 +349,7 @@ func TestNotificationSendAndStateFailures(t *testing.T) {
 	if count != 2 || strings.Contains(output.String(), "SECRET") {
 		t.Fatal("invalid state leaked or sent")
 	}
-	cfg.Enabled = false
+	cfg.ErrorsEnabled, cfg.SuccessEnabled = false, false
 	storage.WriteJSON(filepath.Join(paths.DataDir, mailnotify.ConfigFile), cfg, 0600)
 	notifyScheduledFailure(context.Background(), paths, errors.New("failure"), &output, now)
 	if count != 2 {

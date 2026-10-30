@@ -23,8 +23,9 @@ var ErrNotLoggedIn = errors.New("微博登录态无效，请重新执行 login")
 // rejected. Other transport/response errors have an unknown remote outcome.
 type RejectedError struct {
 	Err error
-	// Only a confirmed, post-specific comment permission refusal permits fallback.
+	// Only confirmed, post-specific creation refusals permit candidate fallback.
 	CommentRestricted bool
+	PostUnavailable   bool
 }
 
 func (e *RejectedError) Error() string { return e.Err.Error() }
@@ -281,11 +282,16 @@ func (c *Client) do(ctx context.Context, method, target string, body io.Reader) 
 		if envelope.Msg == "" {
 			envelope.Msg = "微博接口返回失败"
 		}
-		// Match only the observed permission refusal, not generic failures, rate
+		// Match only specific post refusals, not generic failures, rate
 		// limits or transport errors. Unknown responses remain fatal to the run.
-		restricted := method == http.MethodPost && req.URL.Path == "/api/comments/create" &&
-			strings.TrimRight(strings.TrimSpace(envelope.Msg), "！!。.") == "由于对方的设置，你不能评论哦"
-		return nil, &RejectedError{Err: errors.New(envelope.Msg), CommentRestricted: restricted}
+		message := strings.TrimRight(strings.TrimSpace(envelope.Msg), "！!。.")
+		comment := method == http.MethodPost && req.URL.Path == "/api/comments/create"
+		repost := method == http.MethodPost && req.URL.Path == "/api/statuses/repost"
+		return nil, &RejectedError{
+			Err:               errors.New(envelope.Msg),
+			CommentRestricted: comment && message == "由于对方的设置，你不能评论哦",
+			PostUnavailable:   (comment || repost) && message == "该微博不存在",
+		}
 	}
 	if len(envelope.Data) == 0 || string(envelope.Data) == "null" {
 		return json.RawMessage(data), nil

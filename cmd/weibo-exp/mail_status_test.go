@@ -38,7 +38,7 @@ func TestStatusMailNotification(t *testing.T) {
 					t.Fatal(err)
 				}
 			} else {
-				cfg.Enabled = tc.state == "enabled"
+				cfg.ErrorsEnabled, cfg.SuccessEnabled = tc.state == "enabled", tc.state == "enabled"
 				data, err := json.Marshal(cfg)
 				if err != nil {
 					t.Fatal(err)
@@ -86,7 +86,7 @@ func TestStatusMailNotification(t *testing.T) {
 					} else {
 						want := "邮件通知：" + tc.label
 						if tc.state == "invalid" {
-							want += "，执行 " + commandFor(paths, "notify status") + " 查看详情"
+							want += "。\n" + commandInstruction(paths, "notify status", "查看详情")
 						}
 						if !strings.Contains(output.String(), "定时任务状态：未安装\n"+want+"\n") {
 							t.Fatal(output.String())

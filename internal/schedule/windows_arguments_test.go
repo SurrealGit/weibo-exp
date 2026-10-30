@@ -25,7 +25,7 @@ func TestWindowsTaskPathArguments(t *testing.T) {
 			if err := xml.Unmarshal(data, &task); err != nil {
 				t.Fatal(err)
 			}
-			if want := "--data-dir " + tc.quoted + " scheduled-run"; task.Arguments != want {
+			if want := `--executable "C:\Program Files\weibo-exp.exe" --data-dir ` + tc.quoted + " scheduled-run"; task.Arguments != want {
 				t.Fatalf("arguments = %q, want %q", task.Arguments, want)
 			}
 			exe, dir := windowsArguments(string(data))

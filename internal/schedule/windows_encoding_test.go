@@ -10,7 +10,7 @@ import (
 )
 
 func TestWindowsInstallAndRollbackUseUTF16(t *testing.T) {
-	cfg := Config{Executable: filepath.Join(t.TempDir(), "程序 😀.exe"), DataDir: t.TempDir(), Hour: 10}
+	cfg := Config{Executable: filepath.Join(t.TempDir(), "程序 😀.exe"), DataDir: launcherTestDir(t), Hour: 10}
 	old, err := RenderWindowsTaskXML(cfg)
 	if err != nil {
 		t.Fatal(err)

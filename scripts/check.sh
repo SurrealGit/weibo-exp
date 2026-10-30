@@ -8,6 +8,10 @@ cd "$PROJECT_DIR"
 : "${GOMODCACHE:=${TMPDIR:-/tmp}/weibo-exp-go-mod}"
 export GOCACHE GOMODCACHE
 
+if [ "$(go env GOHOSTOS)" = windows ]; then
+  go generate ./internal/schedule
+fi
+
 unformatted=$(gofmt -l cmd internal scripts)
 if [ -n "$unformatted" ]; then
   echo "以下文件需要执行 gofmt："

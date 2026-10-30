@@ -42,6 +42,42 @@ func pendingFixture(t *testing.T) (app.Paths, app.State) {
 	return paths, state
 }
 
+func TestCommandArgForOS(t *testing.T) {
+	for _, tc := range []struct{ os, value, want string }{
+		{"windows", `C:\Users\example\自动签到\data`, `'C:\Users\example\自动签到\data'`},
+		{"windows", `C:\Task Data\data`, `'C:\Task Data\data'`},
+		{"windows", `C:\User's Data\data`, `'C:\User''s Data\data'`},
+		{"windows", `C:\Task Data\`, `'C:\Task Data\'`},
+		{"windows", `C:\`, `'C:\'`},
+		{"windows", `C:\Tasks & Data\data`, `'C:\Tasks & Data\data'`},
+		{"windows", `C:\Tasks\$daily\$(Get-Date)\data`, `'C:\Tasks\$daily\$(Get-Date)\data'`},
+		{"windows", "C:\\Tasks\\`data\\%TEMP%\\data", "'C:\\Tasks\\`data\\%TEMP%\\data'"},
+		{"windows", "123", "123"},
+		{"darwin", "/tmp/task data", "'/tmp/task data'"},
+		{"linux", "/tmp/user's data", `'/tmp/user'"'"'s data'`},
+		{"linux", "/tmp/data", "/tmp/data"},
+	} {
+		t.Run(tc.os+"/"+tc.value, func(t *testing.T) {
+			if got := commandArgForOS(tc.value, tc.os); got != tc.want {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCommandInstructionLabelsPowerShell(t *testing.T) {
+	command := "weibo-exp --data-dir " + commandArgForOS(`C:\$daily\data`, "windows") + " cleanup"
+	want := "请在 PowerShell 中执行以下命令查看详情：\n" + command
+	if got := commandInstructionForOS(command, "查看详情", "windows"); got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	for _, goos := range []string{"darwin", "linux"} {
+		if got := commandInstructionForOS("weibo-exp cleanup", "查看详情", goos); got != "执行 weibo-exp cleanup 查看详情。" {
+			t.Fatal(got)
+		}
+	}
+}
+
 func TestManualPendingBlocksBeforePromptNetworkAndWrites(t *testing.T) {
 	for _, args := range [][]string{{"run"}, {"run", "--yes"}, {"run", "--dry-run"}, {"scheduled-run"}} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {

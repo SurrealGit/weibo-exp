@@ -14,11 +14,21 @@ import (
 
 func fakePlatform(t *testing.T, platform string, command func(string, ...string) ([]byte, error)) {
 	t.Helper()
+	if platform == "windows" {
+		fakeLauncher(t)
+	}
 	oldOS, oldLook, oldRun := currentGOOS, lookPath, runCommand
 	t.Cleanup(func() { currentGOOS, lookPath, runCommand = oldOS, oldLook, oldRun })
 	currentGOOS = platform
 	lookPath = func(s string) (string, error) { return s, nil }
 	runCommand = command
+}
+
+func fakeLauncher(t *testing.T) {
+	t.Helper()
+	old := launcherPayload
+	t.Cleanup(func() { launcherPayload = old })
+	launcherPayload = func() ([]byte, error) { return []byte("test launcher"), nil }
 }
 
 func TestLaunchdRegistrationDoesNotInventEnabledOrActiveState(t *testing.T) {

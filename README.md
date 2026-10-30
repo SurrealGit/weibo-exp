@@ -72,7 +72,7 @@
 | Windows，Intel / AMD 64 位处理器 | `windows-amd64.zip` | `weibo-exp.exe` |
 | Linux，Intel / AMD 64 位处理器 | `linux-amd64.tar.gz` | `weibo-exp` |
 
-例如，Apple 芯片 Mac 对应 `weibo-exp-v0.8.0-darwin-arm64.tar.gz`。每个压缩包包含程序、使用说明及配套图片和许可声明。
+例如，Apple 芯片 Mac 对应 `weibo-exp-v0.8.1-darwin-arm64.tar.gz`。每个压缩包包含程序、使用说明及配套图片和许可声明。
 
 Mac 可在苹果菜单的“关于本机”中查看芯片；Windows 可在“设置 → 系统 → 系统信息”中查看系统类型。Linux 自动执行使用用户级 systemd（243 或更新版本）；手动运行无需 systemd。
 
@@ -94,6 +94,8 @@ Mac 可在苹果菜单的“关于本机”中查看芯片；Windows 可在“�
 | macOS / Linux | Windows PowerShell |
 | --- | --- |
 | `./weibo-exp install` | `.\weibo-exp.exe install` |
+
+Windows 安装或首次运行时，Windows 安全中心可能隔离程序。若出现安全提示或程序突然无法运行，请参阅 [Windows 安全中心拦截的处理方法](#windows-defender)。
 
 按提示输入 `yes`，程序会安装到固定目录，并配置当前用户的 PATH（系统查找命令的目录列表）。登录与每日自动执行分别在后续步骤中设置。
 
@@ -129,6 +131,8 @@ weibo-exp run
 weibo-exp schedule install
 ```
 
+Windows 会自动安装后台启动器，用于无窗口执行定时任务。安装或首次执行时，主程序和启动器都可能被 Windows 安全中心隔离；处理方式见 [Windows 安全中心拦截的处理方法](#windows-defender)。
+
 首次使用默认每天 **10:00** 执行，之后每 **4 小时** 检查补跑，至当天结束，即 **10:00、14:00、18:00、22:00**。自定义时间同样从设定时间开始计算，例如 09:30 对应 09:30、13:30、17:30、21:30。设置时间可执行 `weibo-exp schedule install --at 09:30`；省略 `--at` 时沿用已保存的时间。
 
 安装、重新加载调度或系统恢复可用时，还可能触发一次检查。程序到达当天设定时间后执行剩余任务；已有待清理内容会优先处理。
@@ -143,9 +147,8 @@ weibo-exp schedule install
 | 系统 | 自动运行条件与补跑行为 |
 | --- | --- |
 | macOS | 使用当前用户的 launchd，保持该用户登录。睡眠期间错过的日历触发会在唤醒后合并补触发一次；登录加载任务时也会检查。MacBook 合盖通常进入睡眠，接通电源不等于系统保持唤醒。 |
-| Windows | 使用任务计划程序，仅在安装任务的用户登录期间运行，锁屏可继续。已开启“错过后尽快运行”；恢复可用后的补触发可能有延迟，可查看日志或手动执行 `run`。 |
+| Windows | 使用任务计划程序，通过后台启动器无窗口运行，仅在安装任务的用户登录期间执行，锁屏可继续。已开启“错过后尽快运行”；恢复可用后的补触发可能有延迟，可查看日志或手动执行 `run`。 |
 | Linux | 使用用户级 systemd timer，要求 `systemctl --user` 可用且用户管理器持续运行。日历定时器在唤醒后补触发；已开启持久化，重新激活时会检查停用期间错过的时刻。默认计时精度为 1 分钟，10:00 后数十秒启动属于正常情况。 |
-| WSL 2 | 除 Linux 条件外，还需 Windows 主机唤醒且 WSL 发行版运行。systemd 服务本身不会保证 WSL 一直存活；WSL 已关闭时，Linux 定时器无法启动它。日常 Windows 自动运行可直接使用 Windows 版。 |
 
 ### 插电时保持电脑唤醒
 
@@ -166,7 +169,7 @@ weibo-exp schedule install
 
 关机期间无法执行。恢复后运行的是**当天剩余任务**，不会补做之前日期的互动；到达当天设定时间前只处理已有待清理内容。网络异常或临时失败由后续每 4 小时检查补跑，也可随时执行 `weibo-exp run`。
 
-参考：[Apple 调度与睡眠](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/ScheduledJobs.html)、[Windows 错过时间后的调度](https://learn.microsoft.com/en-us/windows/win32/taskschd/tasksettings-startwhenavailable)、[systemd 定时器手册](https://www.man7.org/linux/man-pages/man5/systemd.timer.5.html)、[WSL 的 systemd 与运行生命周期](https://learn.microsoft.com/en-us/windows/wsl/systemd)。
+参考：[Apple 调度与睡眠](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/ScheduledJobs.html)、[Windows 错过时间后的调度](https://learn.microsoft.com/en-us/windows/win32/taskschd/tasksettings-startwhenavailable)、[systemd 定时器手册](https://www.man7.org/linux/man-pages/man5/systemd.timer.5.html)。
 
 </details>
 
@@ -238,7 +241,7 @@ weibo-exp config set --comment-limit 6 --repost-limit 3
 weibo-exp config set --comment-limit 0 --repost-limit 0
 ```
 
-提高数量后，程序会结合当天的本地进度补齐差额。评论和转发使用不同的候选帖子，并排除本人发布和本工具今日已互动的帖子。遇到明确的帖子评论权限限制时，会跳过并补选其他帖子；候选耗尽后会在分页上限内继续读取，仍不足时报告未完成项并继续其他超话。
+提高数量后，程序会结合当天的本地进度补齐差额。评论和转发使用不同的候选帖子，并排除本人发布和本工具今日已互动的帖子。遇到帖子评论权限限制或原帖已不存在时，会跳过并补选其他帖子；候选耗尽后会在分页上限内继续读取，仍不足时报告未完成项并继续其他超话。
 
 ### 设置执行时间
 
@@ -279,7 +282,7 @@ weibo-exp config set --time 10:00
 
 ### 邮件通知（可选）
 
-配置并启用 SMTP 邮件通知后，可接收以下提醒：
+配置 SMTP 邮件通知后，可以分别开启以下提醒：
 
 - **每日完成**：每天首次通过定时任务完成全部任务后，发送一封完成邮件。如果任务此前已手动完成，也会在当天首次定时检查确认完成后发送。
 - **任务异常**：定时任务遇到登录失效、待人工核查或其他失败时，发送问题摘要及处理命令。每类异常每天最多成功通知一次。
@@ -346,11 +349,28 @@ weibo-exp notify configure --file smtp.json
 weibo-exp notify test
 ```
 
-首次导入后自动通知默认关闭；更新配置时保留原来的启用状态。`notify test` 会实际发送一封邮件，不执行微博任务，也不改变通知开关。确认收到后启用：
+首次导入后，两类自动通知默认关闭；更新邮箱配置时保留各自的开关状态。`notify test` 会实际发送一封邮件，不执行微博任务，也不改变通知开关。确认收到后，开启全部通知：
 
 ```sh
 weibo-exp notify enable
 ```
+
+如果首次配置后只想接收异常提醒，执行：
+
+```sh
+weibo-exp notify enable --errors
+```
+
+已开启全部通知时，可以单独关闭每日完成邮件，之后再按需开启：
+
+```sh
+# 关闭每日完成邮件
+weibo-exp notify disable --success
+# 恢复每日完成邮件
+weibo-exp notify enable --success
+```
+
+`--errors` 选择异常提醒，`--success` 选择每日完成邮件；带参数时只修改指定类型，另一类保持不变。不带参数或同时指定两个参数时，对两类通知一起操作。修改开关不会立即发送邮件，后续定时检查按新设置执行。
 
 查看或关闭通知：
 
@@ -359,11 +379,11 @@ weibo-exp notify status
 weibo-exp notify disable
 ```
 
-关闭后配置保留，执行 `notify enable` 即可重新启用，无需重新导入。开关通知不会清除当天的去重记录；重新导入配置会重置通知记录。显式执行 `notify test` 在关闭自动通知时仍可测试。自定义数据目录的用户，在命令前加上相应的 `--data-dir`。
+关闭后邮箱配置保留，执行 `notify enable` 即可重新开启两类通知，无需重新导入；也可以带参数只开启其中一类。`notify status` 分别显示两类通知的状态。开关通知不会清除当天的去重记录；重新导入配置会重置通知记录。显式执行 `notify test` 在关闭自动通知时仍可测试。自定义数据目录的用户，在命令前加上相应的 `--data-dir`。
 
 SMTP 配置独立保存在数据目录的 `smtp.json` 中，授权码为本地明文；请妥善保管或删除自行创建的导入源文件，勿将其上传仓库、附在问题反馈或分享给他人。`notify status` 不显示授权码，`config show --json` 也不包含 SMTP 配置。
 
-邮件只提供完成情况或问题摘要及处理命令，不附带登录会话和完整日志。发送失败会记录日志，并在下次定时检查满足相应通知条件时再次尝试，不改变原始任务结果。开关同时控制异常和完成提醒，正常去重情况下每天最多四封自动邮件。
+邮件只提供完成情况或问题摘要及处理命令，不附带登录会话和完整日志。发送失败会记录日志，并在下次定时检查满足相应通知条件时再次尝试，不改变原始任务结果。正常去重情况下，仅开启异常提醒时每天最多三封，仅开启完成提醒时每天最多一封，两类都开启时每天最多四封自动邮件。
 
 SMTP 服务器接收后，邮件仍可能延迟或进入垃圾箱；请通过测试邮件确认能正常收取。电脑关机、休眠或断网时，程序无法保证及时发送提醒。未收到完成邮件时，可检查设备、运行日志和邮箱；邮件缺失本身不能确定设备是否离线。
 
@@ -434,7 +454,7 @@ weibo-exp config show
 | `schedule uninstall` | 停止每日自动执行，保留程序和数据 |
 | `notify configure --file FILE` | 保存 SMTP 配置，保留原启用状态；首次配置默认关闭 |
 | `notify status` / `notify test` | 查看通知设置 / 实际发送测试邮件 |
-| `notify enable` / `notify disable` | 开启 / 关闭自动邮件通知，保留配置和去重记录 |
+| `notify enable` / `notify disable` | 开启 / 关闭全部自动邮件；加 `--errors` 或 `--success` 只修改异常提醒或每日完成邮件，保留邮箱配置和去重记录 |
 | `logs` / `logs clear` | 查看 / 清空运行日志 |
 | `cleanup` | 查看待清理的评论、转发记录 |
 | `cleanup confirm` | 人工核对后移除指定待清理记录 |
@@ -476,6 +496,8 @@ weibo-exp config show
 
 安装后的程序会自动找到这份数据。以后从新下载的程序升级时，带上相同的 `--data-dir` 即可。每个系统用户使用一份原生定时任务。
 
+Windows 的邮件和命令行处理提示会标明使用 PowerShell，复制其中的命令到 PowerShell 执行即可。带单引号的路径会按原文传入，保留空格、`$` 等字符。
+
 也可以通过环境变量 `WEIBO_EXP_DATA_DIR` 指定数据目录，其日志位置与 `--data-dir` 一致。显式 `--data-dir` 优先于环境变量。切换定时任务的数据目录时，`schedule install` 会显示旧、新位置；`schedule uninstall` 只卸载属于当前数据目录的任务。
 
 `--dir` 选择程序安装位置，`--data-dir` 选择运行数据位置，两者可以独立设置。已有数据和日志不会自动搬迁；若更换数据位置并使用定时任务，请执行 `weibo-exp schedule install`。
@@ -507,6 +529,7 @@ weibo-exp config show
 | `smtp.json` | 邮件通知配置，包含明文授权码，请妥善保护 |
 | `notification-state.json` | 异常与完成邮件最近成功提交的日期，用于避免重复通知 |
 | `installation.json` | 安装位置与卸载所需记录 |
+| `weibo-exp-launcher.exe`、`weibo-exp-launcher.exe.sha256` | Windows 定时任务的后台启动器及文件归属校验记录，由 `schedule install` 自动生成，卸载定时任务时移除 |
 | `run.lock` | 防止多个任务同时操作的锁文件 |
 | `login-tmp/` | 扫码图片的临时存放目录，正常登录流程结束后清理图片 |
 
@@ -541,7 +564,7 @@ shell 配置中的新增段带有 `weibo-exp PATH` 标记。升级复用已有�
 | --- | --- |
 | `./weibo-exp install` | `.\weibo-exp.exe install` |
 
-同一目录升级可沿用原定时设置；若程序路径发生变化，请执行 `weibo-exp schedule install` 更新定时任务。
+同一目录升级可沿用原定时时间。Windows 用户使用定时任务时，升级后执行 `weibo-exp schedule install` 更新后台启动器及任务入口；macOS、Linux 用户在程序路径发生变化时执行该命令即可。
 
 ### 卸载
 
@@ -559,7 +582,7 @@ weibo-exp uninstall
 weibo-exp uninstall --keep-config
 ```
 
-使用 `--keep-config` 时保留邮件配置和通知记录，仍会清理日志、定时任务和本工具添加的 PATH 设置。默认卸载会删除数据目录中的邮件配置和通知记录，但不删除用户另存的导入源文件。存在待删除或待人工检查的内容时，先按 `weibo-exp cleanup` 的提示处理，再卸载。卸载结束后请重新打开终端。
+使用 `--keep-config` 时保留邮件配置和通知记录，仍会清理日志、定时任务、Windows 后台启动器和本工具添加的 PATH 设置。默认卸载会删除数据目录中的邮件配置和通知记录，但不删除用户另存的导入源文件。存在待删除或待人工检查的内容时，先按 `weibo-exp cleanup` 的提示处理，再卸载。卸载结束后请重新打开终端。
 
 下载的压缩包、解压副本和自己创建的评论文本可按需自行清理。Windows 卸载时请等待终端显示“后台卸载清理完成”。
 
@@ -577,7 +600,19 @@ weibo-exp uninstall --keep-config
 
 安装完成后，关闭并重新打开终端；若仍未生效，请完全退出终端应用后重新打开。使用 `--no-path` 安装的用户，可进入安装目录运行 `./weibo-exp`（Windows 为 `.\weibo-exp.exe`），或自行配置 PATH。
 
-Windows 用户若此前可以运行、后来突然找不到命令，请检查「Windows 安全中心 → 病毒和威胁防护 → 保护历史记录」，确认程序是否被隔离。若有相关记录，请通过 [Issues](https://github.com/SurrealGit/weibo-exp/issues) 反馈检测名称和所用发行版本；分享截图时请遮盖个人信息。
+Windows 用户若此前可以运行、后来突然找不到命令，也可能是程序被隔离，参阅[下方处理方法](#windows-defender)。
+
+<a id="windows-defender"></a>
+
+**Windows 安全中心拦截程序怎么办？**
+
+部分 Windows 设备上，Windows 安全中心可能在安装或运行时隔离主程序 `weibo-exp.exe`、后台启动器 `weibo-exp-launcher.exe`，导致命令无法运行或定时任务中断。
+
+1. 打开「Windows 安全中心 → 病毒和威胁防护 → 保护历史记录」，展开对应记录，查看“受影响的项目”。主程序和启动器可能分别出现在不同记录中。
+2. 核对程序来自本项目的 [Releases](https://github.com/SurrealGit/weibo-exp/releases)，从同一 Release 下载 `SHA256SUMS.txt`，校验所选压缩包。确认信任并选择继续使用后，可在对应记录的“操作”中选择“还原”；若再次被拦截，可在对应记录中选择“在设备上允许”。
+3. 恢复后执行 `weibo-exp help` 确认程序可以运行。使用定时任务时，再执行 `weibo-exp schedule install` 更新启动器和任务入口，沿用已有定时时间；之后通过 `weibo-exp logs` 查看执行结果。
+
+相关操作说明见 [Microsoft：保护历史记录](https://support.microsoft.com/zh-cn/windows/security/windows-security/protection-history-in-the-windows-security-app)。
 
 **二维码在哪里？登录过期了怎么办？**
 
@@ -615,6 +650,8 @@ weibo-exp login
 go test ./...
 go build -trimpath -ldflags="-s -w" -o dist/weibo-exp ./cmd/weibo-exp
 ```
+
+构建 Windows 主程序前，先执行 `go generate ./internal/schedule` 编译并内嵌 GUI 后台启动器。发行脚本自动完成此步骤。主程序仍按控制台程序构建；`install` 只安装主程序，Windows 的 `schedule install` 才将内嵌启动器写入当前数据目录。
 
 完整检查与发行构建（在 macOS / Linux 或提供 POSIX shell 的构建环境中运行）：
 
