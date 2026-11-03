@@ -368,7 +368,7 @@ func TestScheduledNotificationsPreserveTaskFailure(t *testing.T) {
 		count++
 		return errors.New("模拟 SMTP 故障")
 	})
-	err := scheduledCommand(context.Background(), paths, server.URL)
+	err := scheduledCommand(context.Background(), paths, server.URL, "")
 	if !errors.Is(err, weibo.ErrNotLoggedIn) || strings.Contains(err.Error(), "SMTP") || count != 1 {
 		t.Fatalf("task failure changed: %v; sends=%d", err, count)
 	}
@@ -378,7 +378,7 @@ func TestScheduledNotificationsPreserveTaskFailure(t *testing.T) {
 	}
 	// A corrupt business configuration still allows an independent mail notice.
 	os.WriteFile(paths.Config, []byte("invalid"), 0600)
-	err = scheduledCommand(context.Background(), paths, server.URL)
+	err = scheduledCommand(context.Background(), paths, server.URL, "")
 	if err == nil || count != 2 {
 		t.Fatal("startup failure not notified")
 	}
@@ -387,7 +387,7 @@ func TestScheduledNotificationsPreserveTaskFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer release()
-	if err := scheduledCommand(context.Background(), paths, server.URL); err == nil || count != 2 {
+	if err := scheduledCommand(context.Background(), paths, server.URL, ""); err == nil || count != 2 {
 		t.Fatal("lock conflict sent mail")
 	}
 }
@@ -436,7 +436,7 @@ func TestScheduledSuccessAndInvalidMailConfig(t *testing.T) {
 		return nil
 	})
 	for i := 0; i < 3; i++ {
-		if err := scheduledCommand(context.Background(), paths, server.URL); err != nil {
+		if err := scheduledCommand(context.Background(), paths, server.URL, ""); err != nil {
 			t.Fatalf("mail error changed successful task: %v", err)
 		}
 	}
@@ -449,7 +449,7 @@ func TestScheduledSuccessAndInvalidMailConfig(t *testing.T) {
 		t.Fatal("completion and error messages logged to wrong files")
 	}
 	os.WriteFile(filepath.Join(paths.DataDir, mailnotify.ConfigFile), []byte("invalid SECRET"), 0600)
-	if err := scheduledCommand(context.Background(), paths, server.URL); err != nil {
+	if err := scheduledCommand(context.Background(), paths, server.URL, ""); err != nil {
 		t.Fatalf("invalid mail config blocked business: %v", err)
 	}
 	var log bytes.Buffer
@@ -556,7 +556,7 @@ func TestScheduledCompletionOutcomes(t *testing.T) {
 				}
 				err = runCLI(context.Background(), []string{"--data-dir", paths.DataDir, "--base-url", server.URL, "run", flag}, strings.NewReader(""), io.Discard, io.Discard)
 			} else {
-				err = scheduledCommand(context.Background(), paths, server.URL)
+				err = scheduledCommand(context.Background(), paths, server.URL, "")
 			}
 			wantFailure := mode == "incomplete" || mode == "empty"
 			if (err != nil) != wantFailure {
@@ -606,7 +606,7 @@ func TestScheduledManualPendingNotifiesWithoutWeiboRequests(t *testing.T) {
 	defer server.Close()
 	for i := 0; i < 2; i++ {
 		var blocked *manualCheckError
-		if err := scheduledCommand(context.Background(), paths, server.URL); !errors.As(err, &blocked) {
+		if err := scheduledCommand(context.Background(), paths, server.URL, ""); !errors.As(err, &blocked) {
 			t.Fatalf("manual block lost: %v", err)
 		}
 	}

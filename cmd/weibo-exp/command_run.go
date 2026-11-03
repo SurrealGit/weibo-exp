@@ -72,10 +72,15 @@ func executeRun(ctx context.Context, paths app.Paths, cfg app.Config, client *we
 		if err != nil {
 			return summary, err
 		}
-		client.HTTP.Jar = jar
 		if !options.DryRun {
+			// Dry runs never renew: the ALC is single-use and they do not save.
+			jar = ensureSession(ctx, client, jar, state, renewal{
+				Now: options.Clock(), Output: options.Output,
+				Save: func(renewed *session.Jar) error { return session.Save(paths.Session, renewed) },
+			})
 			defer func() { resultErr = errors.Join(resultErr, session.Save(paths.Session, jar)) }()
 		}
+		client.HTTP.Jar = jar
 	}
 	options.Save = func(value app.State) error { return app.SaveState(paths.State, value) }
 	taskRunner := runner.Runner{API: client, Config: cfg, State: &state, Options: options}
@@ -89,7 +94,7 @@ func executeRun(ctx context.Context, paths app.Paths, cfg app.Config, client *we
 	return summary, err
 }
 
-func scheduledCommand(ctx context.Context, paths app.Paths, baseURL string) (resultErr error) {
+func scheduledCommand(ctx context.Context, paths app.Paths, baseURL, passportURL string) (resultErr error) {
 	release, err := runner.AcquireLock(paths.Lock)
 	if err != nil {
 		return err
@@ -123,6 +128,7 @@ func scheduledCommand(ctx context.Context, paths app.Paths, baseURL string) (res
 	closeLogs, notificationOutput = closeFiles, errorOutput
 	successOutput = output
 	client := weibo.NewClient(baseURL, &http.Client{Timeout: 30 * time.Second})
+	client.PassportURL = passportURL
 	summary, err = executeRun(ctx, paths, cfg, client, runner.Options{IfDue: true, Clock: time.Now, Output: output})
 	if err != nil {
 		var blocked *manualCheckError

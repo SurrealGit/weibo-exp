@@ -169,7 +169,7 @@ func runCLI(ctx context.Context, args []string, input io.Reader, output, errorOu
 		if len(commandArgs) != 0 {
 			return errors.New("scheduled-run 不接受额外参数")
 		}
-		return scheduledCommand(ctx, paths, *baseURL)
+		return scheduledCommand(ctx, paths, *baseURL, *passportURL)
 	case "cleanup":
 		return cleanupCommand(paths, commandArgs, input, output, errorOutput)
 	case "logs":
@@ -202,6 +202,7 @@ func runCLI(ctx context.Context, args []string, input io.Reader, output, errorOu
 	}
 	httpClient := &http.Client{Jar: jar, Timeout: 30 * time.Second}
 	client := weibo.NewClient(*baseURL, httpClient)
+	client.PassportURL = *passportURL
 
 	switch command {
 	case "login":
@@ -241,6 +242,7 @@ func runCLI(ctx context.Context, args []string, input io.Reader, output, errorOu
 		if err := app.SaveState(paths.State, state); err != nil {
 			return err
 		}
+		jar.SetRenewedAt(time.Now()) // A fresh QR login needs no renewal for a day.
 		if err := session.Save(paths.Session, jar); err != nil {
 			return err
 		}

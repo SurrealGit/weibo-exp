@@ -24,6 +24,8 @@ const (
 	qrExpired    = 50114004
 )
 
+const desktopUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+
 type QRLoginOptions struct {
 	TempDir     string
 	PassportURL string
@@ -191,7 +193,7 @@ func loginRequest(ctx context.Context, client *http.Client, method, target, csrf
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json, text/plain, */*")
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36")
+	req.Header.Set("User-Agent", desktopUserAgent)
 	req.Header.Set("Referer", "https://passport.weibo.com/sso/signin?entry=miniblog&source=miniblog&url=https://weibo.com/")
 	req.Header.Set("X-Requested-With", "XMLHttpRequest")
 	if csrf != "" {

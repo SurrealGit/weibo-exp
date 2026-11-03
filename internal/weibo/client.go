@@ -32,9 +32,19 @@ func (e *RejectedError) Error() string { return e.Err.Error() }
 func (e *RejectedError) Unwrap() error { return e.Err }
 
 type Client struct {
-	BaseURL   string
-	HTTP      *http.Client
-	UserAgent string
+	BaseURL string
+	// PassportURL enables automatic session renewal; empty disables it.
+	PassportURL string
+	HTTP        *http.Client
+	UserAgent   string
+}
+
+// WithJar returns a copy that shares the transport but uses another cookie jar.
+func (c *Client) WithJar(jar http.CookieJar) *Client {
+	copied, httpClient := *c, *c.HTTP
+	httpClient.Jar = jar
+	copied.HTTP = &httpClient
+	return &copied
 }
 
 func NewClient(baseURL string, httpClient *http.Client) *Client {

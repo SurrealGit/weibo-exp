@@ -151,7 +151,7 @@ func TestScheduledLockProtectsLogBeforePruning(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer release()
-	if err := scheduledCommand(context.Background(), paths, "https://unit.test"); err == nil {
+	if err := scheduledCommand(context.Background(), paths, "https://unit.test", ""); err == nil {
 		t.Fatal("concurrent run accepted")
 	}
 	data, err := os.ReadFile(path)
