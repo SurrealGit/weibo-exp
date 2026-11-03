@@ -25,15 +25,18 @@ type StoredCookie struct {
 }
 
 type File struct {
-	Version   int            `json:"version"`
-	UpdatedAt time.Time      `json:"updated_at"`
+	Version   int       `json:"version"`
+	UpdatedAt time.Time `json:"updated_at"`
+	// RenewedAt is the Unix time of the last QR login or renewal attempt.
+	RenewedAt int64          `json:"renewed_at,omitempty"`
 	Cookies   []StoredCookie `json:"cookies"`
 }
 
 type Jar struct {
-	mu      sync.Mutex
-	inner   http.CookieJar
-	records map[string]StoredCookie
+	mu        sync.Mutex
+	inner     http.CookieJar
+	records   map[string]StoredCookie
+	renewedAt time.Time
 }
 
 func New(cookies []StoredCookie) (*Jar, error) {
@@ -144,6 +147,18 @@ func (j *Jar) Has(name string) bool {
 	return false
 }
 
+func (j *Jar) RenewedAt() time.Time {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.renewedAt
+}
+
+func (j *Jar) SetRenewedAt(t time.Time) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.renewedAt = t
+}
+
 func Load(path string) (*Jar, error) {
 	var file File
 	if err := storage.ReadJSON(path, &file); err != nil {
@@ -152,13 +167,22 @@ func Load(path string) (*Jar, error) {
 		}
 		return nil, err
 	}
-	return New(file.Cookies)
+	jar, err := New(file.Cookies)
+	if err != nil {
+		return nil, err
+	}
+	if file.RenewedAt > 0 {
+		jar.renewedAt = time.Unix(file.RenewedAt, 0)
+	}
+	return jar, nil
 }
 
 func Save(path string, jar *Jar) error {
-	return storage.WriteJSON(path, File{
-		Version: 2, UpdatedAt: time.Now(), Cookies: jar.Snapshot(),
-	}, 0o600)
+	file := File{Version: 2, UpdatedAt: time.Now(), Cookies: jar.Snapshot()}
+	if renewedAt := jar.RenewedAt(); !renewedAt.IsZero() {
+		file.RenewedAt = renewedAt.Unix()
+	}
+	return storage.WriteJSON(path, file, 0o600)
 }
 
 func key(cookie StoredCookie) string {

@@ -124,7 +124,7 @@ func TestScheduledInvalidConfigurationIsLogged(t *testing.T) {
 			if err := os.WriteFile(p.Config, []byte(contents), 0600); err != nil {
 				t.Fatal(err)
 			}
-			if err := scheduledCommand(context.Background(), p, "http://127.0.0.1:1"); err == nil {
+			if err := scheduledCommand(context.Background(), p, "http://127.0.0.1:1", ""); err == nil {
 				t.Fatal("accepted invalid config")
 			}
 			data, err := os.ReadFile(filepath.Join(p.LogDir, logging.ErrorFile))

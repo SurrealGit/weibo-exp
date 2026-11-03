@@ -219,7 +219,7 @@ func TestNotificationSwitchesLeaveTaskResultUnchanged(t *testing.T) {
 	if err := os.WriteFile(paths.Config, []byte("invalid"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := scheduledCommand(context.Background(), paths, "https://example.invalid"); err == nil {
+	if err := scheduledCommand(context.Background(), paths, "https://example.invalid", ""); err == nil {
 		t.Fatal("disabled notifications swallowed the task failure")
 	}
 	if _, err := os.Stat(filepath.Join(paths.DataDir, mailnotify.StateFile)); !errors.Is(err, os.ErrNotExist) {
