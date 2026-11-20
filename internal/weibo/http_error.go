@@ -6,9 +6,20 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 )
 
 var diagnosticCode = regexp.MustCompile(`^-?[0-9]{1,8}$`)
+
+// HTTPFailure retains only safe diagnostics and retry metadata, never the body.
+type HTTPFailure struct {
+	Status     int
+	Code       string
+	RetryAfter time.Duration
+	Diagnostic string
+}
+
+func (e *HTTPFailure) Error() string { return e.Diagnostic }
 
 // Error responses may echo credentials, personal data or entire requests.
 // Extract only short numeric error codes and known, non-personal messages;
@@ -45,5 +56,5 @@ func httpFailure(method, endpoint string, status int, data []byte) error {
 	if code != "" {
 		codeText = "；接口错误码：" + code
 	}
-	return fmt.Errorf("%s %s: HTTP %d；响应格式：%s%s；接口说明：%s", method, endpoint, status, format, codeText, message)
+	return &HTTPFailure{Status: status, Code: code, Diagnostic: fmt.Sprintf("%s %s: HTTP %d；响应格式：%s%s；接口说明：%s", method, endpoint, status, format, codeText, message)}
 }

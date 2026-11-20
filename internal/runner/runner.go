@@ -24,6 +24,8 @@ type API interface {
 	DeleteRepost(context.Context, string, string) error
 }
 
+var ErrManualPending = errors.New("仍有无内容 ID 的待处理记录，需要人工核查；本次不创建新互动")
+
 type Options struct {
 	DryRun bool
 	Clock  func() time.Time
@@ -277,10 +279,9 @@ func (r *Runner) Run(ctx context.Context) (Summary, error) {
 func (r *Runner) cleanupPending(ctx context.Context, st string) (int, error) {
 	fmt.Fprintf(r.Options.Output, "发现 %d 条待清理内容；正在优先重试删除。\n", len(r.State.PendingDeletes))
 	cleaned := 0
-	for len(r.State.PendingDeletes) > 0 {
-		item := r.State.PendingDeletes[0]
+	for _, item := range append([]app.PendingDelete(nil), r.State.PendingDeletes...) {
 		if item.ContentID == "" {
-			return cleaned, fmt.Errorf("存在无内容 ID 的待清理%s（原帖 %s）；请人工检查后执行 cleanup confirm", pendingKindName(item.Kind), item.SourcePostID)
+			continue
 		}
 		err := r.deleteContent(ctx, item.Kind, item.ContentID, st)
 		if err != nil {
@@ -292,6 +293,9 @@ func (r *Runner) cleanupPending(ctx context.Context, st string) (int, error) {
 			return cleaned, fmt.Errorf("保存待删除清理结果失败: %w", err)
 		}
 		fmt.Fprintf(r.Options.Output, "待清理%s：已删除（%s）\n", pendingKindName(item.Kind), item.ContentID)
+	}
+	if len(r.State.PendingDeletes) > 0 {
+		return cleaned, ErrManualPending
 	}
 	return cleaned, nil
 }

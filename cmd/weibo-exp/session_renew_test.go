@@ -28,11 +28,13 @@ import (
 // passport accepts only the current ALC, once, like the real single-use token.
 type renewServer struct {
 	*httptest.Server
-	mu       sync.Mutex
-	valid    map[string]string
-	alc      string
-	passport int
-	onTasks  func()
+	mu            sync.Mutex
+	valid         map[string]string
+	alc           string
+	passport      int
+	onTasks       func()
+	verifyFailure bool
+	homeFailure   bool
 }
 
 func newRenewServer(t *testing.T, valid map[string]string) *renewServer {
@@ -70,8 +72,16 @@ func (s *renewServer) handle(w http.ResponseWriter, r *http.Request) {
 		http.SetCookie(w, &http.Cookie{Name: "ALC", Value: "alc-2", Path: "/"})
 		http.Redirect(w, r, r.URL.Query().Get("url"), http.StatusFound)
 	case "/":
+		if s.homeFailure {
+			http.Error(w, "temporary failure", 503)
+			return
+		}
 		fmt.Fprint(w, "home")
 	case "/api/config":
+		if s.verifyFailure && cookie("SUB") == "sub-new" {
+			http.Error(w, "temporary failure", 503)
+			return
+		}
 		if uid, ok := s.valid[cookie("SUB")]; ok {
 			fmt.Fprintf(w, `{"ok":1,"data":{"login":true,"uid":%q,"st":"st"}}`, uid)
 		} else {
@@ -190,6 +200,56 @@ func TestScheduledRunRenewsExpiredSession(t *testing.T) {
 	}
 }
 
+func TestManualPendingStillMaintainsSession(t *testing.T) {
+	for _, scheduled := range []bool{false, true} {
+		for _, expired := range []bool{false, true} {
+			t.Run(fmt.Sprintf("scheduled=%t/expired=%t", scheduled, expired), func(t *testing.T) {
+				valid := map[string]string{"sub-new": "test"}
+				if !expired {
+					valid["sub-old"] = "test"
+				}
+				server := newRenewServer(t, valid)
+				paths := scheduledRenewFixture(t, server, "sub-old", "alc-1", time.Now().Add(-25*time.Hour))
+				state, err := app.LoadState(paths.State)
+				if err != nil {
+					t.Fatal(err)
+				}
+				state.AddPendingDelete(app.PendingDelete{Kind: "comment", SourcePostID: "1001"})
+				if err := app.SaveState(paths.State, state); err != nil {
+					t.Fatal(err)
+				}
+				before, _ := os.ReadFile(paths.State)
+				var tasks atomic.Bool
+				server.setOnTasks(func() { tasks.Store(true) })
+				mockMail(t, func(context.Context, mailnotify.Config, string, string) error { return nil })
+				if scheduled {
+					err = scheduledCommand(context.Background(), paths, server.URL, server.URL)
+				} else {
+					err = runCommand(context.Background(), paths, app.DefaultConfig(), renewClient(server), []string{"--yes"}, strings.NewReader(""), io.Discard, io.Discard)
+				}
+				var blocked *manualCheckError
+				if !errors.As(err, &blocked) {
+					t.Fatalf("manual block lost: %v", err)
+				}
+				if server.passportRequests() == 0 || tasks.Load() {
+					t.Fatal("expected login renewal without task requests")
+				}
+				saved, err := session.Load(paths.Session)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if jarCookie(saved, server.URL, "SUB") != "sub-new" || jarCookie(saved, server.URL, "ALC") != "alc-2" {
+					t.Fatal("renewed credentials were not saved")
+				}
+				after, _ := os.ReadFile(paths.State)
+				if !bytes.Equal(before, after) {
+					t.Fatal("blocked task changed interaction state")
+				}
+			})
+		}
+	}
+}
+
 func TestScheduledRunRenewalFailureSendsOneLoginNotice(t *testing.T) {
 	server := newRenewServer(t, map[string]string{})
 	paths := scheduledRenewFixture(t, server, "sub-old", "alc-used", time.Now().Add(-time.Hour))
@@ -226,18 +286,21 @@ func TestEnsureSessionProactiveRenewal(t *testing.T) {
 	now := time.Now()
 	var output strings.Builder
 	var saved []*session.Jar
-	r := renewal{Now: now, Output: &output, Save: func(jar *session.Jar) error { saved = append(saved, jar); return nil }}
+	r := renewal{Now: now, Output: &output, PendingPath: filepath.Join(t.TempDir(), "pending.json"), Save: func(jar *session.Jar) error { saved = append(saved, jar); return nil }}
 
 	disabled := weibo.NewClient(server.URL, &http.Client{Timeout: 5 * time.Second})
 	due := renewJar(t, server, "sub-old", "alc-1", now.Add(-25*time.Hour))
-	if got := ensureSession(context.Background(), disabled, due, state, r); got != due || server.passportRequests() != 0 {
+	if got, err := ensureSession(context.Background(), disabled, due, state, r); err != nil || got != due || server.passportRequests() != 0 {
 		t.Fatal("未配置 PassportURL 时不应续期")
 	}
 	recent := renewJar(t, server, "sub-old", "alc-1", now.Add(-23*time.Hour))
-	if got := ensureSession(context.Background(), renewClient(server), recent, state, r); got != recent || server.passportRequests() != 0 {
+	if got, err := ensureSession(context.Background(), renewClient(server), recent, state, r); err != nil || got != recent || server.passportRequests() != 0 {
 		t.Fatal("距上次续期不足 24 小时时不应续期")
 	}
-	got := ensureSession(context.Background(), renewClient(server), due, state, r)
+	got, err := ensureSession(context.Background(), renewClient(server), due, state, r)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got == due || jarCookie(got, server.URL, "SUB") != "sub-new" || !got.RenewedAt().Equal(now) {
 		t.Fatalf("主动续期结果错误: %#v", got.Snapshot())
 	}
@@ -251,11 +314,11 @@ func TestEnsureSessionFailedProactiveRenewalWaitsADay(t *testing.T) {
 	now := time.Now()
 	jar := renewJar(t, server, "sub-old", "alc-used", now.Add(-25*time.Hour))
 	var output strings.Builder
-	r := renewal{Now: now, Output: &output, Save: func(*session.Jar) error {
+	r := renewal{Now: now, Output: &output, PendingPath: filepath.Join(t.TempDir(), "pending.json"), Save: func(*session.Jar) error {
 		t.Fatal("续期失败时不应保存新会话")
 		return nil
 	}}
-	if got := ensureSession(context.Background(), renewClient(server), jar, app.State{UID: "test"}, r); got != jar {
+	if got, err := ensureSession(context.Background(), renewClient(server), jar, app.State{UID: "test"}, r); err != nil || got != jar {
 		t.Fatal("续期失败时应返回原会话")
 	}
 	if !jar.RenewedAt().Equal(now) {
@@ -277,15 +340,12 @@ func TestEnsureSessionRejectsOtherAccount(t *testing.T) {
 	now := time.Now()
 	jar := renewJar(t, server, "sub-old", "alc-1", now.Add(-time.Hour))
 	var output strings.Builder
-	r := renewal{Now: now, Output: &output, Save: func(*session.Jar) error {
+	r := renewal{Now: now, Output: &output, PendingPath: filepath.Join(t.TempDir(), "pending.json"), Save: func(*session.Jar) error {
 		t.Fatal("账户不一致时不应保存新会话")
 		return nil
 	}}
-	if got := ensureSession(context.Background(), renewClient(server), jar, app.State{UID: "test"}, r); got != jar {
-		t.Fatal("账户不一致时应保留原会话")
-	}
-	if !strings.Contains(output.String(), "登录状态：已失效，自动续期未成功") {
-		t.Fatalf("账户不一致的提示错误: %s", output.String())
+	if got, err := ensureSession(context.Background(), renewClient(server), jar, app.State{UID: "test"}, r); got != nil || err == nil {
+		t.Fatal("账户不一致时不能执行任务或覆盖正式会话")
 	}
 }
 

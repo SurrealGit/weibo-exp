@@ -5,6 +5,7 @@ __pycache__/
 *.pyc
 *.log
 session.json
+session.json.renewal.json
 smtp.json
 notification-state.json
 /config.json

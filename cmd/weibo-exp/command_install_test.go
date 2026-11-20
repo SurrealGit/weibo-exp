@@ -74,6 +74,7 @@ func TestUninstallCleanOrKeepConfig(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			paths, dir := installedFixture(t)
 			os.WriteFile(paths.Session, []byte("{}"), 0600)
+			os.WriteFile(renewalPath(paths.Session), []byte("{}"), 0600)
 			for _, name := range []string{mailnotify.ConfigFile, mailnotify.StateFile} {
 				os.WriteFile(filepath.Join(paths.DataDir, name), []byte("{}"), 0600)
 			}
@@ -95,6 +96,9 @@ func TestUninstallCleanOrKeepConfig(t *testing.T) {
 			}
 			if _, err := os.Stat(paths.Config); keep != (err == nil) {
 				t.Fatalf("keep=%v config=%v", keep, err)
+			}
+			if _, err := os.Stat(renewalPath(paths.Session)); keep != (err == nil) {
+				t.Fatalf("keep=%v renewal=%v", keep, err)
 			}
 			for _, name := range []string{mailnotify.ConfigFile, mailnotify.StateFile} {
 				if _, err := os.Stat(filepath.Join(paths.DataDir, name)); keep != (err == nil) {

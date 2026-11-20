@@ -35,8 +35,10 @@ func runCommand(ctx context.Context, paths app.Paths, cfg app.Config, client *we
 	if err != nil {
 		return err
 	}
-	if err := checkManualPending(output, paths, state, *dryRun); err != nil {
-		return err
+	if *dryRun {
+		if err := checkManualPending(output, paths, state, true); err != nil {
+			return err
+		}
 	}
 	if !*dryRun && !*yes {
 		fmt.Fprintln(output, "即将执行实际写操作：")
@@ -64,8 +66,10 @@ func executeRun(ctx context.Context, paths app.Paths, cfg app.Config, client *we
 	if err != nil {
 		return summary, err
 	}
-	if err := checkManualPending(options.Output, paths, state, options.DryRun); err != nil {
-		return summary, err
+	if options.DryRun {
+		if err := checkManualPending(options.Output, paths, state, true); err != nil {
+			return summary, err
+		}
 	}
 	if paths.Session != "" {
 		jar, err := session.Load(paths.Session)
@@ -74,17 +78,29 @@ func executeRun(ctx context.Context, paths app.Paths, cfg app.Config, client *we
 		}
 		if !options.DryRun {
 			// Dry runs never renew: the ALC is single-use and they do not save.
-			jar = ensureSession(ctx, client, jar, state, renewal{
+			jar, err = ensureSession(ctx, client, jar, state, renewal{
 				Now: options.Clock(), Output: options.Output,
-				Save: func(renewed *session.Jar) error { return session.Save(paths.Session, renewed) },
+				PendingPath: renewalPath(paths.Session),
+				Save:        func(renewed *session.Jar) error { return session.Save(paths.Session, renewed) },
 			})
+			if err != nil {
+				return summary, err
+			}
 			defer func() { resultErr = errors.Join(resultErr, session.Save(paths.Session, jar)) }()
 		}
 		client.HTTP.Jar = jar
 	}
+	// Pending interactions block new tasks, but must not prevent maintenance
+	// of the login credentials needed to recover them on a later run.
+	if err := checkManualPending(options.Output, paths, state, options.DryRun); err != nil {
+		return summary, err
+	}
 	options.Save = func(value app.State) error { return app.SaveState(paths.State, value) }
 	taskRunner := runner.Runner{API: client, Config: cfg, State: &state, Options: options}
 	summary, err = taskRunner.Run(ctx)
+	if errors.Is(err, runner.ErrManualPending) {
+		err = &manualCheckError{notice: pendingNotice(paths, state)}
+	}
 	if !options.IfDue || summary.Comments+summary.Reposts+summary.Deleted+summary.Checkins > 0 || err != nil {
 		printRunSummary(options.Output, summary, options.DryRun, err)
 	}

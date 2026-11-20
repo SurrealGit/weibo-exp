@@ -37,6 +37,8 @@ type RenewOptions struct {
 	PassportURL string // defaults to https://passport.weibo.com
 	ReturnURL   string // defaults to https://m.weibo.cn/
 	Timeout     time.Duration
+	// Checkpoint retains received credentials before another redirect.
+	Checkpoint func(*session.Jar) error
 }
 
 // RenewSession restores the login the way weibo.com's visitor page does: the
@@ -54,18 +56,24 @@ func RenewSession(ctx context.Context, base *session.Jar, options RenewOptions) 
 	if options.Timeout <= 0 {
 		options.Timeout = 30 * time.Second
 	}
+	ctx, cancel := context.WithTimeout(ctx, options.Timeout)
+	defer cancel()
 	candidate, err := session.New(withoutLoginCookies(base.Snapshot()))
 	if err != nil {
 		return nil, err
 	}
 	passport := strings.TrimRight(options.PassportURL, "/")
 	allowed := renewHostPolicy(passport, options.ReturnURL)
+	restoring := false
 	client := &http.Client{Jar: candidate, Timeout: options.Timeout, CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		if len(via) >= maxRenewHops {
 			return errors.New("跳转次数过多")
 		}
 		if !allowed(req.URL) {
 			return errors.New("跳转地址不符合预期")
+		}
+		if restoring && options.Checkpoint != nil {
+			return options.Checkpoint(candidate)
 		}
 		return nil
 	}}
@@ -100,8 +108,15 @@ func RenewSession(ctx context.Context, base *session.Jar, options RenewOptions) 
 	loginURL := passport + "/sso/v2/login?" + url.Values{
 		"entry": {"sso"}, "source": {"visitor_restore"}, "type": {"3"}, "alt": {alt}, "url": {options.ReturnURL},
 	}.Encode()
-	if _, err := renewRequest(ctx, client, "恢复登录", http.MethodGet, loginURL, nil, visitorURL); err != nil {
-		return nil, err
+	restoring = true
+	_, requestErr := renewRequest(ctx, client, "恢复登录", http.MethodGet, loginURL, nil, visitorURL)
+	if options.Checkpoint != nil {
+		if err := options.Checkpoint(candidate); err != nil {
+			return candidate, err
+		}
+	}
+	if requestErr != nil {
+		return candidate, requestErr
 	}
 	return candidate, nil
 }

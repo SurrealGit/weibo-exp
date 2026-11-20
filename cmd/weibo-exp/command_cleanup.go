@@ -77,7 +77,7 @@ func cleanupCommand(paths app.Paths, args []string, input io.Reader, output, err
 		fmt.Fprintln(output, "以上命令只移除本地记录，不会删除微博内容。")
 		_, retry := pendingCounts(state)
 		if retry > 0 {
-			fmt.Fprintf(output, "\n有内容 ID 的记录可自动重试删除；需要人工核查的记录处理后，可等待定时执行。\n%s\n", commandInstruction(paths, "run", "立即重试"))
+			fmt.Fprintf(output, "\n有内容 ID 的记录会优先自动重试删除，不受其他待核查记录阻挡；未完成核查前不创建新互动。\n%s\n", commandInstruction(paths, "run", "立即重试"))
 		}
 		return nil
 	}

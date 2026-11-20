@@ -19,8 +19,9 @@ import (
 
 var ErrNotLoggedIn = errors.New("微博登录态无效，请重新执行 login")
 
-// RejectedError proves the operation was not submitted or was explicitly
-// rejected. Other transport/response errors have an unknown remote outcome.
+// RejectedError identifies a request that was not submitted, an explicit
+// refusal, or a narrowly scoped compatibility refusal. Other transport/response
+// errors have an unknown remote outcome.
 type RejectedError struct {
 	Err error
 	// Only confirmed, post-specific creation refusals permit candidate fallback.
@@ -266,7 +267,18 @@ func (c *Client) do(ctx context.Context, method, target string, body io.Reader) 
 	defer resp.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, httpFailure(method, endpointLabel(resolved), resp.StatusCode, data)
+		failure := httpFailure(method, endpointLabel(resolved), resp.StatusCode, data)
+		if h, ok := failure.(*HTTPFailure); ok {
+			h.RetryAfter = retryAfter(resp.Header.Get("Retry-After"), time.Now())
+			// Compatibility policy based on observed mobile creation failures. Do
+			// not generalize to deletion, other codes, or incomplete
+			// responses; this code alone also does not prove login expiration.
+			creation := req.URL.Path == "/api/statuses/repost" || req.URL.Path == "/api/comments/create"
+			if err == nil && method == http.MethodPost && creation && h.Status == http.StatusForbidden && h.Code == "100006" {
+				return nil, &RejectedError{Err: failure}
+			}
+		}
+		return nil, failure
 	}
 	if err != nil {
 		return nil, err

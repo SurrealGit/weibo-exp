@@ -246,6 +246,9 @@ func runCLI(ctx context.Context, args []string, input io.Reader, output, errorOu
 		if err := session.Save(paths.Session, jar); err != nil {
 			return err
 		}
+		if err := removeRenewal(renewalPath(paths.Session)); err != nil {
+			return fmt.Errorf("新登录会话已保存，但旧续期暂存文件未能清理: %w", err)
+		}
 		fmt.Fprintln(output, "登录结果：成功")
 		fmt.Fprintf(output, "用户 UID：%s\n", status.UID)
 		fmt.Fprintf(output, "会话文件：%s\n", paths.Session)

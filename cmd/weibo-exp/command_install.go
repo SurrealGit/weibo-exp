@@ -192,7 +192,7 @@ func uninstallationCommand(paths app.Paths, args []string, input io.Reader, outp
 	}
 	files := append(logging.Paths(paths.LogDir), qr...)
 	if !*keep {
-		files = append(files, paths.Config, paths.Session, paths.State)
+		files = append(files, paths.Config, paths.Session, renewalPath(paths.Session), paths.State)
 		files = append(files, filepath.Join(paths.DataDir, mailnotify.ConfigFile), filepath.Join(paths.DataDir, mailnotify.StateFile))
 	}
 	// Preflight all deletion paths before stopping a task or deleting any data.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/SurrealGit/weibo-exp/internal/app"
 	"github.com/SurrealGit/weibo-exp/internal/weibo"
@@ -17,6 +18,37 @@ func (r *Runner) checkDate(date string) error {
 }
 
 func (r *Runner) deleteContent(ctx context.Context, kind, id, st string) error {
+	var err error
+	remainingWait := 10 * time.Second
+	for attempt := 0; attempt < 3; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		err = r.deleteOnce(ctx, kind, id, st)
+		if err == nil {
+			return nil
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		minimum, retry := weibo.DeleteRetry(err)
+		if !retry || attempt == 2 {
+			return err
+		}
+		wait := max(time.Duration(2<<attempt)*time.Second, minimum)
+		if wait > remainingWait {
+			return err
+		}
+		fmt.Fprintf(r.Options.Output, "  删除%s遇到临时错误，将在 %s 后重试（%d/3，同一内容 ID %s）。\n", pendingKindName(kind), wait, attempt+2, id)
+		if waitErr := r.Options.Sleep(ctx, wait); waitErr != nil {
+			return waitErr
+		}
+		remainingWait -= wait
+	}
+	return err
+}
+
+func (r *Runner) deleteOnce(ctx context.Context, kind, id, st string) error {
 	switch kind {
 	case "comment":
 		return r.API.DeleteComment(ctx, id, st)

@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/SurrealGit/weibo-exp/internal/session"
 )
@@ -62,6 +63,40 @@ func fakePassport(t *testing.T, reply string, login http.HandlerFunc) *httptest.
 	}))
 	t.Cleanup(server.Close)
 	return server
+}
+
+func TestRenewalCheckpointStopsRedirectOnStorageFailure(t *testing.T) {
+	calls := 0
+	s := fakePassport(t, restoreReply, nil)
+	_, err := RenewSession(context.Background(), baseJar(t), RenewOptions{PassportURL: s.URL, ReturnURL: s.URL + "/m/", Checkpoint: func(j *session.Jar) error {
+		calls++
+		if cookieIn(j, s.URL, "ALC") != "alc-new" {
+			t.Fatal("checkpoint before cookies")
+		}
+		if cookieIn(j, s.URL, "SUB") == "sub-new" {
+			t.Fatal("continued redirect after save failure")
+		}
+		return errors.New("storage unavailable")
+	}})
+	if err == nil || calls == 0 || !strings.Contains(err.Error(), "storage unavailable") {
+		t.Fatal(err, calls)
+	}
+}
+
+func TestRenewalDeadlineAndCancellation(t *testing.T) {
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-r.Context().Done() }))
+	defer s.Close()
+	start := time.Now()
+	_, err := RenewSession(context.Background(), baseJar(t), RenewOptions{PassportURL: s.URL, Timeout: 30 * time.Millisecond})
+	if err == nil || time.Since(start) > 2*time.Second {
+		t.Fatal("unbounded timeout", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err = RenewSession(ctx, baseJar(t), RenewOptions{PassportURL: s.URL})
+	if err == nil {
+		t.Fatal("ignored cancellation")
+	}
 }
 
 const restoreReply = `window.visitor_gray_callback && visitor_gray_callback({"retcode":20000000,"msg":"succ","data":{"alt":"alt-secret","tid":"t"}});`

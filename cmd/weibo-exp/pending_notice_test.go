@@ -78,10 +78,15 @@ func TestCommandInstructionLabelsPowerShell(t *testing.T) {
 	}
 }
 
-func TestManualPendingBlocksBeforePromptNetworkAndWrites(t *testing.T) {
-	for _, args := range [][]string{{"run"}, {"run", "--yes"}, {"run", "--dry-run"}, {"scheduled-run"}} {
+func TestManualPendingDryRunBlocksBeforeNetworkAndWrites(t *testing.T) {
+	for _, args := range [][]string{{"run", "--dry-run"}} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			paths, _ := pendingFixture(t)
+			state, _ := app.LoadState(paths.State)
+			state.PendingDeletes = state.PendingDeletes[:1]
+			if err := app.SaveState(paths.State, state); err != nil {
+				t.Fatal(err)
+			}
 			before, _ := os.ReadFile(paths.State)
 			old := http.DefaultTransport
 			t.Cleanup(func() { http.DefaultTransport = old })
@@ -116,6 +121,42 @@ func TestManualPendingBlocksBeforePromptNetworkAndWrites(t *testing.T) {
 			after, _ := os.ReadFile(paths.State)
 			if !bytes.Equal(before, after) {
 				t.Fatal("state changed")
+			}
+		})
+	}
+}
+
+func TestMixedPendingCLIAllowsKnownCleanupOnly(t *testing.T) {
+	for _, args := range [][]string{{"run", "--yes"}, {"scheduled-run"}} {
+		t.Run(args[0], func(t *testing.T) {
+			paths, _ := pendingFixture(t)
+			deletes := 0
+			s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/api/config":
+					fmt.Fprint(w, `{"ok":1,"data":{"login":true,"uid":"test-account","st":"st"}}`)
+				case "/comments/destroy":
+					r.ParseForm()
+					if r.Form.Get("cid") != "2002" {
+						t.Error("wrong deletion ID")
+					}
+					deletes++
+					fmt.Fprint(w, `{"ok":1,"data":{}}`)
+				default:
+					t.Errorf("unexpected task request: %s", r.URL.Path)
+					http.Error(w, "unexpected", 500)
+				}
+			}))
+			defer s.Close()
+			var output bytes.Buffer
+			err := runCLI(context.Background(), append([]string{"--data-dir", paths.DataDir, "--base-url", s.URL, "--passport-url", ""}, args...), strings.NewReader(""), &output, io.Discard)
+			var blocked *manualCheckError
+			if !errors.As(err, &blocked) || deletes != 1 {
+				t.Fatalf("%v deletes=%d output=%s", err, deletes, &output)
+			}
+			state, err := app.LoadState(paths.State)
+			if err != nil || len(state.PendingDeletes) != 1 || state.PendingDeletes[0].ContentID != "" {
+				t.Fatalf("%+v %v", state, err)
 			}
 		})
 	}
@@ -245,6 +286,9 @@ func TestAutomaticRetryNoticeDoesNotClaimManualBlock(t *testing.T) {
 
 func TestLoginSuccessPreservesPendingAndShowsNotice(t *testing.T) {
 	paths, _ := pendingFixture(t)
+	if err := os.WriteFile(renewalPath(paths.Session), []byte("{}"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	_, mailConfig := mailFixture(t)
 	if err := storage.WriteJSON(filepath.Join(paths.DataDir, mailnotify.ConfigFile), mailConfig, 0600); err != nil {
 		t.Fatal(err)
@@ -282,6 +326,9 @@ func TestLoginSuccessPreservesPendingAndShowsNotice(t *testing.T) {
 	}
 	if !strings.Contains(output.String(), "登录结果：成功") || !strings.Contains(output.String(), "注意：任务执行受阻") || !strings.Contains(output.String(), commandFor(paths, "cleanup")) {
 		t.Fatal(output.String())
+	}
+	if _, err := os.Stat(renewalPath(paths.Session)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("fresh login retained stale candidate")
 	}
 	state, err := app.LoadState(paths.State)
 	if err != nil || len(state.PendingDeletes) != 2 {

@@ -116,8 +116,12 @@ type manualCheckError struct{ notice string }
 func (e *manualCheckError) Error() string { return e.notice }
 
 func checkManualPending(output io.Writer, paths app.Paths, state app.State, dryRun bool) error {
-	manual, _ := pendingCounts(state)
+	manual, retry := pendingCounts(state)
 	if manual == 0 {
+		return nil
+	}
+	// A manual item blocks new interactions, not cleanup of known IDs.
+	if !dryRun && retry > 0 {
 		return nil
 	}
 	if dryRun {
